@@ -20,7 +20,7 @@ def make_mlp_model(layer_size, num_layers, activate_final=True, activation=tf.nn
     """
     return snt.Sequential([
       snt.nets.MLP([layer_size] * num_layers, activate_final=activate_final, activation=activation),
-      snt.LayerNorm()
+      snt.LayerNorm(axis=1, create_offset=True, create_scale=True)
     ], name=name)
 
 
@@ -52,9 +52,9 @@ _DEFAULT_GLOBAL_BLOCK_OPT = {
 }
 
 
-class GraphNetwork(object):
+class GraphNetwork(snt.Module):
     def __init__(self,
-                 reducer=tf.unsorted_segment_sum,
+                 reducer=tf.math.unsorted_segment_sum,
                  edge_model_layer_size=8,
                  num_edge_layers=2,
                  node_model_layer_size=8,
@@ -62,6 +62,8 @@ class GraphNetwork(object):
                  global_layer_size=8,
                  num_global_layers=2,
                  message_passing_steps=1):
+        super(GraphNetwork, self).__init__()
+
         self.message_passing_steps = message_passing_steps
 
         self.graph_net = gn.modules.GraphNetwork(
@@ -107,11 +109,8 @@ class GraphNetwork(object):
         # Pass result to policy network.
         return updated_graph.globals
 
-    def get_all_variables(self):
-        return self.graph_net.get_all_variables()
 
-
-class GraphModel(object):
+class GraphModel(snt.Module):
     """A graph neural network-based reinforcement learning model in TF eager mode.
 
     The model implements a one-step proximal policy optimization loss:
@@ -211,7 +210,7 @@ class GraphModel(object):
             # 80 graphs, we get an embedding of size global_dim. Reduce these information over 80 graphs into one
             # information on which we base our decision on.
             # Todo: Instead pad with zeros and use full embedding matrix?
-            embedding = tf.reduce_mean(embedding, axis=0, keep_dims=True)
+            embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
 
         logits = self.policy_net(embedding)
         baseline_values = tf.squeeze(self.value_net(embedding))
@@ -227,9 +226,9 @@ class GraphModel(object):
         if explore:
             action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
         else:
-            action = tf.convert_to_tensor(np.argmax(logits, -1))
+            action = tf.convert_to_tensor(value=np.argmax(logits, -1))
         log_probs = tf.nn.log_softmax(logits)
-        action_log_prob = tf.reduce_sum(tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
+        action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
 
         # Detach from eager tensor to numpy.
         return action.numpy(), action_log_prob.numpy(), baseline_values.numpy()
@@ -257,7 +256,7 @@ class GraphModel(object):
         # Transform lists of graph-tuples into one graph tuple containing the entire batch.
         # Also concatenate masks.
         mask = tf.concat([state[self.mask_name] for state in states], axis=0)
-        prev_log_probs = tf.squeeze(tf.convert_to_tensor(prev_log_probs))
+        prev_log_probs = tf.squeeze(tf.convert_to_tensor(value=prev_log_probs))
         input_list = [state[self.state_name] for state in states]  # E.g. graph tuples
         if not self.reduce_embedding:
             inputs = utils_tf.concat(input_list, axis=0)
@@ -270,10 +269,10 @@ class GraphModel(object):
             # Todo: We might be able to concat these if we use a fixed size (e.g. empty graphs)
             for graph_tuple in input_list:
                 graph_embeddings = self.main_net.get_embeddings(graph_tuple)
-                graph_embeddings = tf.reduce_mean(graph_embeddings, axis=0, keep_dims=False)
+                graph_embeddings = tf.reduce_mean(input_tensor=graph_embeddings, axis=0, keepdims=False)
                 embedding.append(graph_embeddings)
 
-            embedding = tf.convert_to_tensor(np.asarray(embedding), tf.float32)
+            embedding = tf.convert_to_tensor(value=np.asarray(embedding), dtype=tf.float32)
 
         logits = self.policy_net(embedding)
 
@@ -297,13 +296,13 @@ class GraphModel(object):
 
         # Log likelihood of actions being taken.
         log_probs = tf.nn.log_softmax(logits)
-        log_probs = tf.reduce_sum(tf.one_hot(tf.squeeze(actions), depth=self.num_actions) * log_probs, axis=-1)
+        log_probs = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(actions), depth=self.num_actions) * log_probs, axis=-1)
 
         # Ratio against log likelihood of actions _before_ update.
         likelihood_ratio = tf.exp(x=log_probs - prev_log_probs)
 
         # Update is bounded by clip ratip.
-        clipped_advantages = tf.where(
+        clipped_advantages = tf.compat.v1.where(
             condition=advantages > 0,
             x=(1 + self.clip_ratio * advantages),
             y=(1 - self.clip_ratio * advantages)
@@ -313,8 +312,8 @@ class GraphModel(object):
         loss = -tf.minimum(x=likelihood_ratio * advantages, y=clipped_advantages)
 
         # Sample estimates of entropy and KL divergence.
-        loss_entropy = tf.reduce_mean(-log_probs)
-        kl_divergence = tf.reduce_mean(prev_log_probs - log_probs)
+        loss_entropy = tf.reduce_mean(input_tensor=-log_probs)
+        kl_divergence = tf.reduce_mean(input_tensor=prev_log_probs - log_probs)
 
         # Monitor during training. Entropy should decrease over time.
         # KL divergence indicates how much the policy changes each update.
@@ -328,18 +327,3 @@ class GraphModel(object):
 
         # Mean loss across batch, shape [B] -> ()
         return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=baseline_loss, axis=0)
-
-    @property
-    def trainable_variables(self):
-        """
-        Returns:
-            List of trainable variables in this model.
-        """
-        # Important: GraphNets is not yet updated to Sonnet 2.0 / tf 2.0
-        # Sonnet 2.0 (already available) will share a base with Keras, and then we can just inherit
-        # from tf.keras.model and use self.trainable_variables which would automatically
-        # collect all trainable variables.
-        # Instead, we assemble variables manually.
-        all_variables = self.main_net.get_all_variables() + \
-                            self.policy_net.get_all_variables() + self.value_net.get_all_variables()
-        return sorted(all_variables, key=lambda v: v.name)

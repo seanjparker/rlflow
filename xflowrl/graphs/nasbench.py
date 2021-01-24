@@ -25,8 +25,8 @@ class NasbenchTASO(object):
         input_names = ['input:0']  # [128, 32, 32, 3]
         output_names = ['output/BiasAdd:0']
 
-        with tf.Session(graph=tf_graph) as sess:
-            init_op = tf.initialize_all_variables()
+        with tf.compat.v1.Session(graph=tf_graph) as sess:
+            init_op = tf.compat.v1.initialize_all_variables()
             sess.run(init_op)
 
             frozen_graph_def = freeze_session(sess, output_names=['output/BiasAdd:0'])
@@ -76,7 +76,7 @@ class NasbenchTASO(object):
             inputs = tf.constant(30, shape=(128, 32, 32, 3), dtype=tf.dtypes.float32, name='input')
 
             # Initial stem convolution
-            with tf.variable_scope('stem'):
+            with tf.compat.v1.variable_scope('stem'):
                 net = base_ops.conv_bn_relu(
                     inputs, 3, config['stem_filter_size'],
                     is_training, config['data_format'])
@@ -86,7 +86,7 @@ class NasbenchTASO(object):
 
                 # Downsample at start (except first)
                 if stack_num > 0:
-                    net = tf.layers.max_pooling2d(
+                    net = tf.compat.v1.layers.max_pooling2d(
                         inputs=net,
                         pool_size=(2, 2),
                         strides=(2, 2),
@@ -96,9 +96,9 @@ class NasbenchTASO(object):
                     # Double output channels each time we downsample
                     channels *= 2
 
-                with tf.variable_scope('stack{}'.format(stack_num)):
+                with tf.compat.v1.variable_scope('stack{}'.format(stack_num)):
                     for module_num in range(config['num_modules_per_stack']):
-                        with tf.variable_scope('module{}'.format(module_num)):
+                        with tf.compat.v1.variable_scope('module{}'.format(module_num)):
                             net = build_module(
                                 spec,
                                 inputs=net,
@@ -107,14 +107,14 @@ class NasbenchTASO(object):
 
             # Global average pool
             if config['data_format'] == 'channels_last':
-                net = tf.reduce_mean(net, [1, 2])
+                net = tf.reduce_mean(input_tensor=net, axis=[1, 2])
             elif config['data_format'] == 'channels_first':
-                net = tf.reduce_mean(net, [2, 3])
+                net = tf.reduce_mean(input_tensor=net, axis=[2, 3])
             else:
                 raise ValueError('invalid data_format')
 
             # Fully-connected layer to labels
-            logits = tf.layers.dense(
+            logits = tf.compat.v1.layers.dense(
                 inputs=net,
                 units=config['num_labels'],
                 name='output'

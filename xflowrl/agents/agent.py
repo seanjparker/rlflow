@@ -10,7 +10,7 @@ tfe.enable_eager_execution()
 class Agent(object):
     """Provides a high level agent API on top of the graph model and documents parameters."""
 
-    def __init__(self, num_actions, discount=0.99, gae_lambda=1.0, reducer=tf.unsorted_segment_sum,
+    def __init__(self, num_actions, discount=0.99, gae_lambda=1.0, reducer=tf.math.unsorted_segment_sum,
                  learning_rate=0.01, baseline_learning_rate=0.01, clip_ratio=0.2, num_message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2,
                  edge_model_layer_size=8, num_edge_layers=2, node_model_layer_size=8, num_node_layers=2,
@@ -104,9 +104,9 @@ class Agent(object):
         for state in states:
             state["graph"] = make_eager_graph_tuple(state["graph"])
 
-        actions = tf.convert_to_tensor(actions)
-        log_probs = tf.convert_to_tensor(log_probs)
-        baseline_values = tf.convert_to_tensor(baseline_values)
+        actions = tf.convert_to_tensor(value=actions)
+        log_probs = tf.convert_to_tensor(value=log_probs)
+        baseline_values = tf.convert_to_tensor(value=baseline_values)
 
         # Eager update mechanism via gradient taping.
         # Note two separate tapes for policy and value net.

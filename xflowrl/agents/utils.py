@@ -14,13 +14,13 @@ def make_eager_graph_tuple(graph_tuple):
         Tuple with each value converted to an eager tensor.
     """
     return graph_tuple.replace(
-        edges=tf.convert_to_tensor(graph_tuple.edges, dtype=tf.float32),
-        nodes=tf.convert_to_tensor(graph_tuple.nodes, dtype=tf.float32),
-        senders=tf.convert_to_tensor(graph_tuple.senders, dtype=tf.int32),
-        receivers=tf.convert_to_tensor(graph_tuple.receivers, dtype=tf.int32),
-        n_node=tf.convert_to_tensor(graph_tuple.n_node, dtype=tf.int32),
-        n_edge=tf.convert_to_tensor(graph_tuple.n_edge, dtype=tf.int32),
-        globals=tf.convert_to_tensor(graph_tuple.globals, dtype=tf.float32)
+        edges=tf.convert_to_tensor(value=graph_tuple.edges, dtype=tf.float32),
+        nodes=tf.convert_to_tensor(value=graph_tuple.nodes, dtype=tf.float32),
+        senders=tf.convert_to_tensor(value=graph_tuple.senders, dtype=tf.int32),
+        receivers=tf.convert_to_tensor(value=graph_tuple.receivers, dtype=tf.int32),
+        n_node=tf.convert_to_tensor(value=graph_tuple.n_node, dtype=tf.int32),
+        n_edge=tf.convert_to_tensor(value=graph_tuple.n_edge, dtype=tf.int32),
+        globals=tf.convert_to_tensor(value=graph_tuple.globals, dtype=tf.float32)
     )
 
 
@@ -96,4 +96,4 @@ def gae_helper(baseline, reward, gamma, gae_lambda, terminals, sequence_indices)
         i += 1
 
     deltas = np.asarray(deltas)
-    return tf.convert_to_tensor(discount_all(deltas, gamma * gae_lambda, terminals), dtype=tf.float32)
+    return tf.convert_to_tensor(value=discount_all(deltas, gamma * gae_lambda, terminals), dtype=tf.float32)

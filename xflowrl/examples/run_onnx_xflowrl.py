@@ -48,7 +48,7 @@ def main(argv):
     graph_file, graph = graphs[0]
     # graph = load_graph(graph_files[0])
 
-    env = HierarchicalEnvironment(real_measurements=True)
+    env = HierarchicalEnvironment(real_measurements=False)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions1
 
@@ -59,7 +59,7 @@ def main(argv):
         num_locations=100,
         discount=0.99,
         gae_lambda=1.0,
-        reducer=tf.unsorted_segment_sum,
+        reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
         # Value function can have the same or a slightly more aggressive learning rate.
@@ -102,7 +102,6 @@ def main(argv):
 
     output_filename = 'results_{:%Y-%m-%d_%H-%M-%S}.csv'.format(now)
     info_filename = 'info_{:%Y-%m-%d_%H-%M-%S}.txt'.format(now)
-    save_model_filename = 'saved_model_{:%Y-%m-%d_%H-%M-%S}'.format(now)
 
     logger_inference = logging.getLogger('log_inference')
     logger_inference.addHandler(logging.FileHandler('log_training_{:%Y-%m-%d_%H-%M-%S}'.format(now)))
@@ -227,10 +226,10 @@ def main(argv):
                     rewards = []
                     terminals = []
 
-                    agent.save('./model/{}'.format(save_model_filename))
+                    agent.save()
 
     output_file.close()
-    agent.save('./model/{}'.format(save_model_filename))
+    agent.save()
     # Export trained model to current directory with checkpoint name "mymodel".
     # agent.save("mymodel")
 

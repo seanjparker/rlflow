@@ -22,7 +22,7 @@ def config_cython():
             ret.append(Extension(
                 "xflowrl.%s" % fn[:-4],
                 ["%s/%s" % (path, fn)],
-                include_dirs=["taso_ext/src", "/usr/local/cuda/include"],
+                include_dirs=[".", "taso_ext/src", "/usr/local/cuda/include"],
                 libraries=["taso_runtime", "taso_rl"],
                 extra_compile_args=["-DUSE_CUDNN", "-std=c++11"],
                 extra_link_args=[],
@@ -44,9 +44,9 @@ setup(
     packages=[package for package in find_packages() if package.startswith('xflowrl')],
     ext_modules=config_cython(),
     install_requires=[
-        'numpy',
-        'tensorflow==1.15.0rc2',
-        'dm-sonnet',
+        'gast==0.3.3',
+        'tensorflow==2.3.2',
+        'dm-sonnet==2.0.0',
         'tensorflow-probability',
         'graph-nets',
         'gym'

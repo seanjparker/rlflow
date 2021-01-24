@@ -89,7 +89,7 @@ def main(argv):
         num_actions=num_actions,
         discount=0.99,
         gae_lambda=1.0,
-        reducer=tf.unsorted_segment_sum,
+        reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         # I did not tune them particularly for this toy problem.
         learning_rate=0.0025,

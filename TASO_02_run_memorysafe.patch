@@ -291,11 +291,11 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 +    float result = model->measure_oplist_runtime(opBaseList);
 +
 +    // Now free GPU memory from the opList
-+    i = 0;
-+    while (i < opBaseList.size()) {
-+        OpBase* opBase = opBaseList[i++];
-+        opBase->unmap();
-+        free(opBase);
++    for (int i = 0; i < opBaseList.size(); i++) {
++      OpBase* opBase = opBaseList[i];
++      opBase->unmap();
++      free(opBase);
++      opBase = nullptr;
 +    }
 +
 +    return result;

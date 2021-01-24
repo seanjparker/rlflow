@@ -508,5 +508,15 @@ float RLOptimizer::get_measured_runtime(Graph* graph)
   assert(opList.size() == graph->inEdges.size());
   assert(opList.size() == opBaseList.size());
 
-  return graph->model->measure_oplist_runtime(opBaseList);
+  float result = graph->model->measure_oplist_runtime(opBaseList);
+
+  // Now free GPU memory from the opList
+  for (int i = 0; i < opBaseList.size(); i++) {
+    OpBase* opBase = opBaseList[i];
+    opBase->unmap();
+    free(opBase);
+    opBase = nullptr;
+  }
+
+  return result;
 }

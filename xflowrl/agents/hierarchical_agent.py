@@ -1,13 +1,10 @@
 from xflowrl.agents.models import GraphModel, GraphNetwork
 import tensorflow as tf
-import tensorflow.contrib.eager as tfe
 import graph_nets as gn
 
 import numpy as np
 
 from xflowrl.agents.utils import make_eager_graph_tuple
-
-tfe.enable_eager_execution()
 
 
 class HierarchicalAgent(object):
@@ -16,7 +13,7 @@ class HierarchicalAgent(object):
     def __init__(self, num_actions, num_locations=100,
                  discount=0.99,
                  gae_lambda=1.0,
-                 reducer=tf.unsorted_segment_sum,
+                 reducer=tf.math.unsorted_segment_sum,
                  learning_rate=0.01,
                  baseline_learning_rate=0.01,
                  clip_ratio=0.2,
@@ -92,6 +89,11 @@ class HierarchicalAgent(object):
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
         self.baseline_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
+
+        checkpoint_root = "/checkpoint/models"
+        self.ckpt = tf.train.Checkpoint(module=self.model,
+                                        optim=self.optimizer, baseline_optim=self.baseline_optimizer)
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
         """
@@ -169,9 +171,9 @@ class HierarchicalAgent(object):
             state["location_mask"] = state["location_mask"][main_action]
             state["graph"] = make_eager_graph_tuple(state["graph"])
 
-        actions = tf.convert_to_tensor(actions)
-        log_probs = tf.convert_to_tensor(log_probs)
-        baseline_values = tf.convert_to_tensor(baseline_values)
+        actions = tf.convert_to_tensor(value=actions)
+        log_probs = tf.convert_to_tensor(value=log_probs)
+        baseline_values = tf.convert_to_tensor(value=baseline_values)
 
         # Eager update mechanism via gradient taping.
         # Note two separate tapes for policy and value net.
@@ -191,14 +193,15 @@ class HierarchicalAgent(object):
                               for var, grad in zip(self.model.trainable_variables, baseline_grads)]
             self.optimizer.apply_gradients(zip(baseline_grads, self.model.trainable_variables))
 
-        sub_actions = tf.convert_to_tensor(sub_actions)
-        sub_log_probs = tf.convert_to_tensor(sub_log_probs)
-        sub_baseline_values = tf.convert_to_tensor(sub_baseline_values)
+        sub_actions = tf.convert_to_tensor(value=sub_actions)
+        sub_log_probs = tf.convert_to_tensor(value=sub_log_probs)
+        sub_baseline_values = tf.convert_to_tensor(value=sub_baseline_values)
 
         # Update the sub model
         with tf.GradientTape() as tape, tf.GradientTape() as sub_baseline_tape:
-            sub_loss, sub_baseline_loss = self.sub_model.update(states, sub_actions, sub_log_probs, sub_baseline_values, rewards,
-                                                    terminals)
+            sub_loss, sub_baseline_loss = self.sub_model.update(states, sub_actions, sub_log_probs, sub_baseline_values,
+                                                                rewards,
+                                                                terminals)
             grads = tape.gradient(sub_loss, self.sub_model.trainable_variables)
 
             # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
@@ -216,13 +219,13 @@ class HierarchicalAgent(object):
         # Unpack eager tensor.
         return loss.numpy(), baseline_loss.numpy(), sub_loss.numpy(), sub_baseline_loss.numpy()
 
-    def save(self, path):
+    def save(self):
         """Saves checkpoint to path."""
-        saver = tfe.Saver(self.model.trainable_variables)
-        print("Saving model to path = ", path)
-        saver.save(path)
 
-    def load(self, checkpoint_file):
+        path = self.ckpt_manager.save()
+        print("Saved model to path = ", path)
+
+    def load(self):
         """
         Loads model from checkpoint. Note: due to eager execution, this can only be called once
         all sonnet modules have been called once, e.g. by executing an act. See example.
@@ -230,6 +233,8 @@ class HierarchicalAgent(object):
         Args:
             checkpoint_file(str): Path to checkpoint.
         """
-        saver = tfe.Saver(self.model.trainable_variables)
-        print("Restoring model from path = ", checkpoint_file)
-        saver.restore(checkpoint_file)
+        self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
+        if self.ckpt_manager.latest_checkpoint:
+            print("Restoring model from path = {}".format(self.ckpt_manager.latest_checkpoint))
+        else:
+            print("Initializing from scratch.")
