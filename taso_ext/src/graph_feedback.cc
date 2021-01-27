@@ -28,7 +28,7 @@ bool RLOptimizer::reset() {
   Model* model = graph->model;
 
   //printf("Resetting Xfers...\n");
-  // todo: memory?
+  // TODO: Memory leak due to xfers vector!
   xfers = std::vector<GraphXfer*>();
 
   for (int i = 1; i < 3; i++)
