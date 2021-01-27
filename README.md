@@ -37,6 +37,17 @@ installed packages of the current experiment environment, run
 pip install -r pip.freeze
 ```
 
+_Note: This command may fail if you have not yet installed the TASO package._
+
+<details>
+  <summary>2021 Experiments Requirements</summary>
+  ## Requirements
+- Python: 3.7.0
+- TensorFlow: 2.3.2
+- Cuda: 10.1 (Used 18.04 (LTS), the cuBLAS library needs to be manually installed, it doesn't get installed into `/usr/local/cuda10-1` by default)
+- CuDNN: 7.6.5.32-1+cuda10.1
+- Nvidia Driver: >= 418.39
+</details>
 
 ### Installing CUDA
 
