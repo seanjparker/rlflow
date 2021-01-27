@@ -122,7 +122,7 @@ class GraphModel(snt.Module):
     """
 
     def __init__(self, num_actions, discount=0.99, gae_lambda=1.0,
-                 clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2,
+                 clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2, num_message_passing_steps=5,
                  main_net=None, state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False,
                  *args, **kwargs):
         super(GraphModel, self).__init__(*args, **kwargs)
@@ -177,7 +177,7 @@ class GraphModel(snt.Module):
 
         mask_value = tf.cast(
             tf.fill(dims=tf.shape(input=logits), value=-1e10), logits.dtype)
-        return tf.compat.v2.where(mask, logits, mask_value)
+        return tf.where(mask, logits, mask_value)
 
     def act(self, states, explore=True):
         """
@@ -301,8 +301,8 @@ class GraphModel(snt.Module):
         # Ratio against log likelihood of actions _before_ update.
         likelihood_ratio = tf.exp(x=log_probs - prev_log_probs)
 
-        # Update is bounded by clip ratip.
-        clipped_advantages = tf.compat.v1.where(
+        # Update is bounded by clip ratio.
+        clipped_advantages = tf.where(
             condition=advantages > 0,
             x=(1 + self.clip_ratio * advantages),
             y=(1 - self.clip_ratio * advantages)
