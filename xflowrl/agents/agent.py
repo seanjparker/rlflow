@@ -1,10 +1,7 @@
 from xflowrl.agents.models import GraphModel, GraphNetwork
 import tensorflow as tf
-import tensorflow.contrib.eager as tfe
 
 from xflowrl.agents.utils import make_eager_graph_tuple
-
-tfe.enable_eager_execution()
 
 
 class Agent(object):
@@ -59,8 +56,13 @@ class Agent(object):
             num_policy_layers=num_policy_layers,
             main_net=self.main_net
         )
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        self.baseline_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
+        self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
+
+        checkpoint_root = "./checkpoint/models"
+        self.ckpt = tf.train.Checkpoint(module=self.model,
+                                        optim=self.pi_optimizer, baseline_optim=self.vf_optimizer)
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
         """
@@ -111,29 +113,27 @@ class Agent(object):
         # Eager update mechanism via gradient taping.
         # Note two separate tapes for policy and value net.
         with tf.GradientTape() as tape, tf.GradientTape() as baseline_tape:
-            loss, baseline_loss = self.model.update(states, actions, log_probs, baseline_values, rewards, terminals)
-            grads = tape.gradient(loss, self.model.trainable_variables)
+            pi_loss, vf_loss = self.model.update(states, actions, log_probs, baseline_values, rewards, terminals)
 
-            # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-            # the code below filters these out. Comment out to check just in case.
-            grads = [grad if grad is not None else tf.zeros_like(var)
-                     for var, grad in zip(self.model.trainable_variables, grads)]
+        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
+        # the code below filters these out. Comment out to check just in case.
+        policy_grads = tape.gradient(pi_loss, self.model.policy_net.trainable_variables)
+        policy_grads = [grad if grad is not None else tf.zeros_like(var)
+                        for var, grad in zip(self.model.policy_net.trainable_variables, policy_grads)]
+        self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
 
-            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-
-            baseline_grads = baseline_tape.gradient(baseline_loss, self.model.trainable_variables)
-            baseline_grads = [grad if grad is not None else tf.zeros_like(var)
-                              for var, grad in zip(self.model.trainable_variables, baseline_grads)]
-            self.optimizer.apply_gradients(zip(baseline_grads, self.model.trainable_variables))
+        value_grads = baseline_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
+        value_grads = [grad if grad is not None else tf.zeros_like(var)
+                       for var, grad in zip(self.model.value_net.trainable_variables, value_grads)]
+        self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))
 
         # Unpack eager tensor.
-        return loss.numpy(), baseline_loss.numpy()
+        return pi_loss.numpy(), vf_loss.numpy()
 
     def save(self, path):
         """Saves checkpoint to path."""
-        saver = tfe.Saver(self.model.trainable_variables)
+        path = self.ckpt_manager.save()
         print("Saving model to path = ", path)
-        saver.save(path)
 
     def load(self, checkpoint_file):
         """
@@ -143,6 +143,8 @@ class Agent(object):
         Args:
             checkpoint_file(str): Path to checkpoint.
         """
-        saver = tfe.Saver(self.model.trainable_variables)
-        print("Restoring model from path = ", checkpoint_file)
-        saver.restore(checkpoint_file)
+        self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
+        if self.ckpt_manager.latest_checkpoint:
+            print("Restoring model from path = {}".format(self.ckpt_manager.latest_checkpoint))
+        else:
+            print("Initializing from scratch.")

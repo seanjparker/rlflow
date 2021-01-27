@@ -232,7 +232,7 @@ class HierarchicalEnvironment(object):
         else:
             print("Invalid action: xfer {} with location {}".format(xfer_id, location_id))
             new_run_time = 0.
-            reward = -10.
+            reward = -1000.
 
         new_state = self.build_state()
 

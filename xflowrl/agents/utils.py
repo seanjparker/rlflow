@@ -1,9 +1,10 @@
 import tensorflow as tf
-from graph_nets import utils_tf
 import numpy as np
+from graph_nets.graphs import GraphsTuple
+from graph_nets import utils_tf
 
 
-def make_eager_graph_tuple(graph_tuple):
+def make_eager_graph_tuple(graph_tuple: GraphsTuple):
     """
     Ensures the contents of one or more graph tuples are tf tensors.
 

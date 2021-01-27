@@ -90,7 +90,7 @@ class HierarchicalAgent(object):
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
         self.baseline_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
 
-        checkpoint_root = "/checkpoint/models"
+        checkpoint_root = "./checkpoint/models"
         self.ckpt = tf.train.Checkpoint(module=self.model,
                                         optim=self.optimizer, baseline_optim=self.baseline_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
@@ -181,17 +181,16 @@ class HierarchicalAgent(object):
             loss, baseline_loss = self.model.update(states, actions, log_probs, baseline_values, rewards, terminals)
             grads = tape.gradient(loss, self.model.trainable_variables)
 
-            # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-            # the code below filters these out. Comment out to check just in case.
-            grads = [grad if grad is not None else tf.zeros_like(var)
-                     for var, grad in zip(self.model.trainable_variables, grads)]
+        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
+        # the code below filters these out. Comment out to check just in case.
+        grads = [grad if grad is not None else tf.zeros_like(var)
+                 for var, grad in zip(self.model.trainable_variables, grads)]
+        self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
-            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-
-            baseline_grads = baseline_tape.gradient(baseline_loss, self.model.trainable_variables)
-            baseline_grads = [grad if grad is not None else tf.zeros_like(var)
-                              for var, grad in zip(self.model.trainable_variables, baseline_grads)]
-            self.optimizer.apply_gradients(zip(baseline_grads, self.model.trainable_variables))
+        baseline_grads = baseline_tape.gradient(baseline_loss, self.model.trainable_variables)
+        baseline_grads = [grad if grad is not None else tf.zeros_like(var)
+                          for var, grad in zip(self.model.trainable_variables, baseline_grads)]
+        self.optimizer.apply_gradients(zip(baseline_grads, self.model.trainable_variables))
 
         sub_actions = tf.convert_to_tensor(value=sub_actions)
         sub_log_probs = tf.convert_to_tensor(value=sub_log_probs)
@@ -200,21 +199,19 @@ class HierarchicalAgent(object):
         # Update the sub model
         with tf.GradientTape() as tape, tf.GradientTape() as sub_baseline_tape:
             sub_loss, sub_baseline_loss = self.sub_model.update(states, sub_actions, sub_log_probs, sub_baseline_values,
-                                                                rewards,
-                                                                terminals)
+                                                                rewards, terminals)
             grads = tape.gradient(sub_loss, self.sub_model.trainable_variables)
-
-            # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-            # the code below filters these out. Comment out to check just in case.
-            grads = [grad if grad is not None else tf.zeros_like(var)
-                     for var, grad in zip(self.sub_model.trainable_variables, grads)]
-
-            self.optimizer.apply_gradients(zip(grads, self.sub_model.trainable_variables))
-
             baseline_grads = sub_baseline_tape.gradient(sub_baseline_loss, self.sub_model.trainable_variables)
-            baseline_grads = [grad if grad is not None else tf.zeros_like(var)
-                              for var, grad in zip(self.sub_model.trainable_variables, baseline_grads)]
-            self.optimizer.apply_gradients(zip(baseline_grads, self.sub_model.trainable_variables))
+
+        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
+        # the code below filters these out. Comment out to check just in case.
+        grads = [grad if grad is not None else tf.zeros_like(var)
+                 for var, grad in zip(self.sub_model.trainable_variables, grads)]
+        self.optimizer.apply_gradients(zip(grads, self.sub_model.trainable_variables))
+
+        baseline_grads = [grad if grad is not None else tf.zeros_like(var)
+                          for var, grad in zip(self.sub_model.trainable_variables, baseline_grads)]
+        self.optimizer.apply_gradients(zip(baseline_grads, self.sub_model.trainable_variables))
 
         # Unpack eager tensor.
         return loss.numpy(), baseline_loss.numpy(), sub_loss.numpy(), sub_baseline_loss.numpy()
