@@ -16,6 +16,12 @@ cdef class PyRLOptimizer:
         c_graph = <Graph*>(ptr)
         self.rl_optimizer = new RLOptimizer(c_graph)
 
+    def __dealloc__(self):
+        del self.rl_optimizer
+
+        #cdef Graph* c_graph = self.rl_optimizer.get_graph().get_ptr_addr()
+
+
     def reset(self):
         return self.rl_optimizer.reset()
 
