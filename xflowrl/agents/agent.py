@@ -8,7 +8,7 @@ class Agent(object):
     """Provides a high level agent API on top of the graph model and documents parameters."""
 
     def __init__(self, num_actions, discount=0.99, gae_lambda=1.0, reducer=tf.math.unsorted_segment_sum,
-                 learning_rate=0.01, baseline_learning_rate=0.01, clip_ratio=0.2, num_message_passing_steps=5,
+                 learning_rate=0.01, vf_learning_rate=0.01, clip_ratio=0.2, num_message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2,
                  edge_model_layer_size=8, num_edge_layers=2, node_model_layer_size=8, num_node_layers=2,
                  global_layer_size=8, num_global_layers=2):
@@ -22,7 +22,7 @@ class Agent(object):
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
             learning_rate (float): Policy learning rate.
-            baseline_learning_rate (float): Value network learning rate.
+            vf_learning_rate (float): Value network learning rate.
             clip_ratio (float): Limits the likelihood ratio between prior and new policy during the update. Does
                 not typically require tuning.
             num_message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
@@ -57,11 +57,11 @@ class Agent(object):
             main_net=self.main_net
         )
         self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
+        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
-        self.ckpt = tf.train.Checkpoint(module=self.model,
-                                        optim=self.pi_optimizer, baseline_optim=self.vf_optimizer)
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), module=self.model,
+                                        optim=self.pi_optimizer, vf_optim=self.vf_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
@@ -82,7 +82,7 @@ class Agent(object):
             action: An array containing one or more integer actions.
             log_prob: The log likelihood of the action under the current policy. Needs to be stored for update,
                 see example.
-            baseline_value: The value estimate of the baseline policy. Needs to be stored for update, see
+            vf_value: The value estimate of the vf policy. Needs to be stored for update, see
                 example.
         """
         # Convert graph tuples to eager tensors.
@@ -94,26 +94,26 @@ class Agent(object):
 
         return self.model.act(states, explore=explore)
 
-    def update(self, states, actions, log_probs, baseline_values, rewards, terminals):
+    def update(self, states, actions, log_probs, vf_values, rewards, terminals):
         """
         Computes proximal policy updates and value function updates using two separate
         gradient tapes and optimizers.
 
         Returns:
             loss (float): Policy loss
-            baseline_loss (float): Value function loss.
+            vf_loss (float): Value function loss.
         """
         for state in states:
             state["graph"] = make_eager_graph_tuple(state["graph"])
 
         actions = tf.convert_to_tensor(value=actions)
         log_probs = tf.convert_to_tensor(value=log_probs)
-        baseline_values = tf.convert_to_tensor(value=baseline_values)
+        vf_values = tf.convert_to_tensor(value=vf_values)
 
         # Eager update mechanism via gradient taping.
         # Note two separate tapes for policy and value net.
-        with tf.GradientTape() as tape, tf.GradientTape() as baseline_tape:
-            pi_loss, vf_loss = self.model.update(states, actions, log_probs, baseline_values, rewards, terminals)
+        with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
+            pi_loss, vf_loss = self.model.update(states, actions, log_probs, vf_values, rewards, terminals)
 
         # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
         # the code below filters these out. Comment out to check just in case.
@@ -122,7 +122,7 @@ class Agent(object):
                         for var, grad in zip(self.model.policy_net.trainable_variables, policy_grads)]
         self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
 
-        value_grads = baseline_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
+        value_grads = vf_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
         value_grads = [grad if grad is not None else tf.zeros_like(var)
                        for var, grad in zip(self.model.value_net.trainable_variables, value_grads)]
         self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))

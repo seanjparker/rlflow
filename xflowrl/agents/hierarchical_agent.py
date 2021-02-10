@@ -1,10 +1,9 @@
 from xflowrl.agents.models import GraphModel, GraphNetwork
+from xflowrl.agents.utils import make_eager_graph_tuple
 import tensorflow as tf
 import graph_nets as gn
-
 import numpy as np
-
-from xflowrl.agents.utils import make_eager_graph_tuple
+import datetime
 
 
 class HierarchicalAgent(object):
@@ -15,7 +14,7 @@ class HierarchicalAgent(object):
                  gae_lambda=1.0,
                  reducer=tf.math.unsorted_segment_sum,
                  learning_rate=0.01,
-                 baseline_learning_rate=0.01,
+                 vf_learning_rate=0.01,
                  clip_ratio=0.2,
                  policy_layer_size=32,
                  num_policy_layers=2,
@@ -37,7 +36,7 @@ class HierarchicalAgent(object):
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
             learning_rate (float): Policy learning rate.
-            baseline_learning_rate (float): Value network learning rate.
+            vf_learning_rate (float): Value network learning rate.
             clip_ratio (float): Limits the likelihood ratio between prior and new policy during the update. Does
                 not typically require tuning.
             policy_layer_size (int):  Num policy layers. Also used for value network.
@@ -88,11 +87,11 @@ class HierarchicalAgent(object):
         )
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        self.baseline_optimizer = tf.keras.optimizers.Adam(learning_rate=baseline_learning_rate)
+        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
-        self.ckpt = tf.train.Checkpoint(module=self.model,
-                                        optim=self.optimizer, baseline_optim=self.baseline_optimizer)
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), module=self.model,
+                                        optim=self.optimizer, vf_optim=self.vf_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
@@ -113,7 +112,7 @@ class HierarchicalAgent(object):
             action: An array containing one or more integer actions.
             log_prob: The log likelihood of the action under the current policy. Needs to be stored for update,
                 see example.
-            baseline_value: The value estimate of the baseline policy. Needs to be stored for update, see
+            vf_value: The value estimate of the vf policy. Needs to be stored for update, see
                 example.
         """
         # Convert graph tuples to eager tensors.
@@ -123,7 +122,7 @@ class HierarchicalAgent(object):
         else:
             states["graph"] = make_eager_graph_tuple(states["graph"])
 
-        main_action, main_logprobs, main_baseline_values = self.model.act(states, explore=explore)
+        main_action, main_logprobs, main_vf_values = self.model.act(states, explore=explore)
 
         if isinstance(states, list):
             tuples = []
@@ -149,12 +148,12 @@ class HierarchicalAgent(object):
 
         sub_state = dict(xfers=tuples, location_mask=masks)
 
-        sub_action, sub_logprobs, sub_baseline_values = self.sub_model.act(sub_state, explore=explore)
+        sub_action, sub_logprobs, sub_vf_values = self.sub_model.act(sub_state, explore=explore)
 
-        return main_action, main_logprobs, main_baseline_values, sub_action, sub_logprobs, sub_baseline_values
+        return main_action, main_logprobs, main_vf_values, sub_action, sub_logprobs, sub_vf_values
 
-    def update(self, states, actions, log_probs, baseline_values,
-               sub_actions, sub_log_probs, sub_baseline_values,
+    def update(self, states, actions, log_probs, vf_values,
+               sub_actions, sub_log_probs, sub_vf_values,
                rewards, terminals):
         """
         Computes proximal policy updates and value function updates using two separate
@@ -162,7 +161,7 @@ class HierarchicalAgent(object):
 
         Returns:
             loss (float): Policy loss
-            baseline_loss (float): Value function loss.
+            vf_loss (float): Value function loss.
         """
         for i, state in enumerate(states):
             main_action = actions[i][0]
@@ -173,13 +172,17 @@ class HierarchicalAgent(object):
 
         actions = tf.convert_to_tensor(value=actions)
         log_probs = tf.convert_to_tensor(value=log_probs)
-        baseline_values = tf.convert_to_tensor(value=baseline_values)
+        vf_values = tf.convert_to_tensor(value=vf_values)
+        sub_actions = tf.convert_to_tensor(value=sub_actions)
+        sub_log_probs = tf.convert_to_tensor(value=sub_log_probs)
+        sub_vf_values = tf.convert_to_tensor(value=sub_vf_values)
 
         # Eager update mechanism via gradient taping.
         # Note two separate tapes for policy and value net.
-        with tf.GradientTape() as tape, tf.GradientTape() as baseline_tape:
-            loss, baseline_loss = self.model.update(states, actions, log_probs, baseline_values, rewards, terminals)
-            grads = tape.gradient(loss, self.model.trainable_variables)
+        with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
+            policy_loss, vf_loss, info = self.model.update(states, actions, log_probs, vf_values, rewards,
+                                                           terminals)
+            grads = tape.gradient(policy_loss, self.model.trainable_variables)
 
         # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
         # the code below filters these out. Comment out to check just in case.
@@ -187,21 +190,18 @@ class HierarchicalAgent(object):
                  for var, grad in zip(self.model.trainable_variables, grads)]
         self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
 
-        baseline_grads = baseline_tape.gradient(baseline_loss, self.model.trainable_variables)
-        baseline_grads = [grad if grad is not None else tf.zeros_like(var)
-                          for var, grad in zip(self.model.trainable_variables, baseline_grads)]
-        self.optimizer.apply_gradients(zip(baseline_grads, self.model.trainable_variables))
-
-        sub_actions = tf.convert_to_tensor(value=sub_actions)
-        sub_log_probs = tf.convert_to_tensor(value=sub_log_probs)
-        sub_baseline_values = tf.convert_to_tensor(value=sub_baseline_values)
+        vf_grads = vf_tape.gradient(vf_loss, self.model.trainable_variables)
+        vf_grads = [grad if grad is not None else tf.zeros_like(var)
+                          for var, grad in zip(self.model.trainable_variables, vf_grads)]
+        self.optimizer.apply_gradients(zip(vf_grads, self.model.trainable_variables))
 
         # Update the sub model
-        with tf.GradientTape() as tape, tf.GradientTape() as sub_baseline_tape:
-            sub_loss, sub_baseline_loss = self.sub_model.update(states, sub_actions, sub_log_probs, sub_baseline_values,
-                                                                rewards, terminals)
-            grads = tape.gradient(sub_loss, self.sub_model.trainable_variables)
-            baseline_grads = sub_baseline_tape.gradient(sub_baseline_loss, self.sub_model.trainable_variables)
+        with tf.GradientTape() as tape, tf.GradientTape() as sub_vf_tape:
+            sub_policy_loss, sub_vf_loss, _ = self.sub_model.update(states, sub_actions, sub_log_probs,
+                                                                    sub_vf_values,
+                                                                    rewards, terminals)
+            grads = tape.gradient(sub_policy_loss, self.sub_model.trainable_variables)
+            vf_grads = sub_vf_tape.gradient(sub_vf_loss, self.sub_model.trainable_variables)
 
         # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
         # the code below filters these out. Comment out to check just in case.
@@ -209,16 +209,15 @@ class HierarchicalAgent(object):
                  for var, grad in zip(self.sub_model.trainable_variables, grads)]
         self.optimizer.apply_gradients(zip(grads, self.sub_model.trainable_variables))
 
-        baseline_grads = [grad if grad is not None else tf.zeros_like(var)
-                          for var, grad in zip(self.sub_model.trainable_variables, baseline_grads)]
-        self.optimizer.apply_gradients(zip(baseline_grads, self.sub_model.trainable_variables))
+        vf_grads = [grad if grad is not None else tf.zeros_like(var)
+                          for var, grad in zip(self.sub_model.trainable_variables, vf_grads)]
+        self.optimizer.apply_gradients(zip(vf_grads, self.sub_model.trainable_variables))
 
         # Unpack eager tensor.
-        return loss.numpy(), baseline_loss.numpy(), sub_loss.numpy(), sub_baseline_loss.numpy()
+        return policy_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
 
     def save(self):
         """Saves checkpoint to path."""
-
         path = self.ckpt_manager.save()
         print("Saved model to path = ", path)
 
@@ -232,6 +231,6 @@ class HierarchicalAgent(object):
         """
         self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
         if self.ckpt_manager.latest_checkpoint:
-            print("Restoring model from path = {}".format(self.ckpt_manager.latest_checkpoint))
+            print("Restoring model from = {}".format(self.ckpt_manager.latest_checkpoint))
         else:
             print("Initializing from scratch.")

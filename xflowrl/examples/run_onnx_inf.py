@@ -55,7 +55,7 @@ def main(argv):
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
         # Value function can have the same or a slightly more aggressive learning rate.
-        baseline_learning_rate=0.0025,
+        vf_learning_rate=0.0025,
         policy_layer_size=32,
         # This limits the aggressiveness of the update -> 0.2 is often the default value, 0.3
         # for a more aggressive update, 0.1 for a more conservative one.
@@ -87,7 +87,7 @@ def main(argv):
         start_time = time.time()
 
         while not terminal:
-            main_action, main_log_prob, main_baseline_value, sub_action, sub_log_prob, sub_baseline_value = agent.act(states=state, explore=False)
+            main_action, main_log_prob, main_vf_value, sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=False)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((main_action, sub_action))

@@ -48,7 +48,7 @@ def main(argv):
     graph_file, graph = graphs[0]
     # graph = load_graph(graph_files[0])
 
-    env = HierarchicalEnvironment(real_measurements=False)
+    env = HierarchicalEnvironment(real_measurements=True)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions1
 
@@ -63,7 +63,7 @@ def main(argv):
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
         # Value function can have the same or a slightly more aggressive learning rate.
-        baseline_learning_rate=0.0025,
+        vf_learning_rate=0.0025,
         policy_layer_size=32,
         # This limits the aggressiveness of the update -> 0.2 is often the default value, 0.3
         # for a more aggressive update, 0.1 for a more conservative one.
@@ -71,12 +71,15 @@ def main(argv):
         message_passing_steps=5
     )
 
-    agent = HierarchicalAgent(**hparams)
-
     num_episodes = 2000  # Todo: change
 
     # How often will we update?
     episodes_per_batch = 10  # Todo: change
+
+    agent = HierarchicalAgent(**hparams)
+    agent.load()
+    start_episode = int(agent.ckpt.step)
+    print("Starting from episode = {}".format(start_episode))
 
     # Demonstrating a simple training loop - collect a few samples, transform them to graph inputs,
     # update occasionally.
@@ -86,11 +89,11 @@ def main(argv):
     states = []
     main_actions = []
     main_log_probs = []
-    main_baseline_values = []
+    main_vf_values = []
 
     sub_actions = []
     sub_log_probs = []
-    sub_baseline_values = []
+    sub_vf_values = []
 
     rewards = []
     terminals = []
@@ -107,6 +110,11 @@ def main(argv):
     logger_inference.addHandler(logging.FileHandler('log_training_{:%Y-%m-%d_%H-%M-%S}'.format(now)))
     logger_inference.setLevel(logging.INFO)
 
+    current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+    print('Created Tensorboard log directory: {}'.format(train_log_dir))
+
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
         hp['reducer'] = 'tf.unsorted_segment_sum'
@@ -118,7 +126,10 @@ def main(argv):
     print("Output filename: {}".format(output_filename))
     output_file = open(output_filename, 'wt')
 
-    for current_episode in range(num_episodes):
+    current_graph_file, current_graph = graphs[0]
+    print("Training on graph: {}".format(current_graph_file))
+
+    for current_episode in range(start_episode - 1, num_episodes):
         # Keep stepping
         terminal = False
         episode_reward = 0
@@ -127,8 +138,6 @@ def main(argv):
         #current_graph_file = graph_files[current_episode % len(graph_files)]
         #current_graph = ts.load_onnx(current_graph_file)
 
-        current_graph_file, current_graph = graphs[current_episode % len(graphs)]
-        print("Training on graph: {}".format(current_graph_file))
         env.set_graph(current_graph)
 
         #ts.optimize(current_graph)
@@ -139,9 +148,11 @@ def main(argv):
         start_runtime = env.get_cost()
         print("Start runtime: {:.4f}".format(start_runtime))
 
+        agent.ckpt.step.assign_add(1)
+
         timestep = 0
         while not terminal:
-            main_action, main_log_prob, main_baseline_value, sub_action, sub_log_prob, sub_baseline_value = agent.act(states=state, explore=True)
+            main_action, main_log_prob, main_vf_value, sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((main_action, sub_action))
@@ -152,12 +163,12 @@ def main(argv):
             # Main action
             main_actions.append(main_action)
             main_log_probs.append(main_log_prob)
-            main_baseline_values.append(main_baseline_value)
+            main_vf_values.append(main_vf_value)
 
             # Sub action
             sub_actions.append(sub_action)
             sub_log_probs.append(sub_log_prob)
-            sub_baseline_values.append(sub_baseline_value)
+            sub_vf_values.append(sub_vf_value)
 
             rewards.append(reward)
             terminals.append(terminal)
@@ -201,32 +212,43 @@ def main(argv):
                     print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
                         current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
                     # Simply pass collected trajectories to the agent for a single update.
-                    loss, baseline_loss, sub_loss, sub_baseline_loss = agent.update(
+                    policy_loss, vf_loss, sub_policy_loss, sub_vf_loss, info = agent.update(
                         states=states,
                         actions=main_actions,
                         log_probs=main_log_probs,
-                        baseline_values=main_baseline_values,
+                        vf_values=main_vf_values,
                         sub_actions=sub_actions,
                         sub_log_probs=sub_log_probs,
-                        sub_baseline_values=sub_baseline_values,
+                        sub_vf_values=sub_vf_values,
                         rewards=rewards,
                         terminals=terminals
                     )
                     # Loss should be decreasing.
-                    print("Loss = {}, baseline loss = {}".format(loss, baseline_loss))
-                    print("Sub loss = {}, Sub baseline loss = {}".format(sub_loss, sub_baseline_loss))
+                    print("policy loss = {}, vf loss = {}".format(policy_loss, vf_loss))
+                    print("sub policy loss = {}, sub vf loss = {}".format(sub_policy_loss, sub_vf_loss))
+
                     # Reset buffers.
                     states = []
                     main_actions = []
                     main_log_probs = []
-                    main_baseline_values = []
+                    main_vf_values = []
                     sub_actions = []
                     sub_log_probs = []
-                    sub_baseline_values = []
+                    sub_vf_values = []
                     rewards = []
                     terminals = []
 
+                    # Log to tensorboard
+                    with train_summary_writer.as_default():
+                        tf.summary.scalar('policy_loss', policy_loss, step=current_episode)
+                        tf.summary.scalar('vf_loss', vf_loss, step=current_episode)
+                        tf.summary.scalar('sub_policy_loss', sub_policy_loss, step=current_episode)
+                        tf.summary.scalar('sub_vf_loss', sub_vf_loss, step=current_episode)
+                        for k, v in info.items():
+                            tf.summary.scalar(k, v, step=current_episode)
+
                     agent.save()
+                    print("Checkpointed episode = {}".format(int(agent.ckpt.step)))
 
     output_file.close()
     agent.save()

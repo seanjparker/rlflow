@@ -131,19 +131,19 @@ class TestAgent(unittest.TestCase):
         values = [value, value]
         rewards = [1.0, 1.0]
 
-        loss, baseline_loss = agent.update(
+        loss, vf_loss = agent.update(
             states=batch_states,
             actions=batch_actions,
             log_probs=log_probs,
-            baseline_values=values,
+            vf_values=values,
             rewards=rewards,
             terminals=[0.0, 0.0]
         )
 
-        print("Loss = ", loss)
-        print("Baseline loss = ", baseline_loss)
+        print("Policy Loss = ", loss)
+        print("VF loss = ", vf_loss)
         self.assertIsNotNone(loss)
-        self.assertIsNotNone(baseline_loss)
+        self.assertIsNotNone(vf_loss)
 
     def test_learning(self):
         """
@@ -160,7 +160,7 @@ class TestAgent(unittest.TestCase):
         states = []
         actions = []
         log_probs = []
-        baseline_values = []
+        vf_values = []
         rewards = []
         terminals = []
 
@@ -175,17 +175,17 @@ class TestAgent(unittest.TestCase):
             states.append(state)
             actions.append(action)
             log_probs.append(log_prob)
-            baseline_values.append(value)
+            vf_values.append(value)
             rewards.append(float(reward))
             terminals.append(True)
 
         # Run a few updates.
         for _ in range(100):
-            loss, baseline_loss = agent.update(
+            loss, vf_loss = agent.update(
                 states=states,
                 actions=actions,
                 log_probs=log_probs,
-                baseline_values=baseline_values,
+                vf_values=vf_values,
                 rewards=rewards,
                 terminals=terminals
             )

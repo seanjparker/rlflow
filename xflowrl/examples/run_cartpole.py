@@ -94,7 +94,7 @@ def main(argv):
         # I did not tune them particularly for this toy problem.
         learning_rate=0.0025,
         # Value function can have the same or a slightly more aggressive learning rate.
-        baseline_learning_rate=0.03,
+        vf_learning_rate=0.03,
         policy_layer_size=32,
         # This limits the aggressiveness of the update -> 0.2 is often the default value, 0.3
         # for a more aggressive update, 0.1 for a more conservative one.
@@ -113,7 +113,7 @@ def main(argv):
     states = []
     actions = []
     log_probs = []
-    baseline_values = []
+    vf_values = []
     rewards = []
     terminals = []
 
@@ -152,7 +152,7 @@ def main(argv):
             states.append(graph_state)
             actions.append(action)
             log_probs.append(log_prob)
-            baseline_values.append(value)
+            vf_values.append(value)
             rewards.append(reward)
             terminals.append(terminal)
 
@@ -176,21 +176,21 @@ def main(argv):
                     print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
                         current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
                     # Simply pass collected trajectories to the agent for a single update.
-                    loss, baseline_loss = agent.update(
+                    loss, vf_loss = agent.update(
                         states=states,
                         actions=actions,
                         log_probs=log_probs,
-                        baseline_values=baseline_values,
+                        vf_values=vf_values,
                         rewards=rewards,
                         terminals=terminals
                     )
                     # Loss should be decreasing.
-                    print("Loss = {}, baseline loss = {}".format(loss, baseline_loss))
+                    print("Loss = {}, vf loss = {}".format(loss, vf_loss))
                     # Reset buffers.
                     states = []
                     actions = []
                     log_probs = []
-                    baseline_values = []
+                    vf_values = []
                     rewards = []
                     terminals = []
 

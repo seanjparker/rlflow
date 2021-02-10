@@ -153,7 +153,7 @@ class GraphModel(snt.Module):
             snt.nets.MLP([num_actions], activate_final=False)
         ], name="policy_net")
 
-        # Baseline value function, outputs a value estimate for the current state.
+        # Value function, outputs a value estimate for the current state.
         self.value_net = snt.Sequential([
             snt.nets.MLP([policy_layer_size] * num_policy_layers, activate_final=True, activation=tf.nn.relu),
             snt.nets.MLP([1], activate_final=False)
@@ -213,7 +213,7 @@ class GraphModel(snt.Module):
             embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
 
         logits = self.policy_net(embedding)
-        baseline_values = tf.squeeze(self.value_net(embedding))
+        vf_values = tf.squeeze(self.value_net(embedding))
 
         # Logits has dim [B, NUM_ACTIONS]
         # Mask has concat shape [B x NUM_ACTIONS]
@@ -231,11 +231,11 @@ class GraphModel(snt.Module):
         action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
 
         # Detach from eager tensor to numpy.
-        return action.numpy(), action_log_prob.numpy(), baseline_values.numpy()
+        return action.numpy(), action_log_prob.numpy(), vf_values.numpy()
 
     def compute_generalized_advantage_estimate(self, values, rewards, terminals):
         return gae_helper(
-            baseline=values,
+            vf=values,
             reward=rewards,
             gamma=self.discount,
             gae_lambda=self.gae_lambda,
@@ -276,20 +276,20 @@ class GraphModel(snt.Module):
 
         logits = self.policy_net(embedding)
 
-        # Baseline output.
-        baseline_values = tf.squeeze(self.value_net(embedding))
+        # VF output.
+        vf_values = tf.squeeze(self.value_net(embedding))
 
         # Compute advantage estimate.
         advantages = self.compute_generalized_advantage_estimate(
-            values=baseline_values,
+            values=vf_values,
             rewards=rewards,
             terminals=terminals
         )
 
-        # Compute baseline loss with simple mean squared error against prior values.
+        # Compute vf loss with simple mean squared error against prior values.
         v_targets = advantages + prev_values
         v_targets = tf.stop_gradient(input=v_targets)
-        baseline_loss = (baseline_values - v_targets) ** 2
+        vf_loss = (vf_values - v_targets) ** 2
 
         mask = tf.reshape(mask, logits.shape)
         logits = self.masked_logits(logits, mask)
@@ -304,8 +304,8 @@ class GraphModel(snt.Module):
         # Update is bounded by clip ratio.
         clipped_advantages = tf.where(
             condition=advantages > 0,
-            x=(1 + self.clip_ratio * advantages),
-            y=(1 - self.clip_ratio * advantages)
+            x=((1 + self.clip_ratio) * advantages),
+            y=((1 - self.clip_ratio) * advantages)
         )
 
         # Shape [B], loss per item
@@ -322,8 +322,8 @@ class GraphModel(snt.Module):
         # look for a KL-divergence ~ between 0.01 - 0.05.
         # If things are going well despite larger values, this can be ignored. It can merely help
         # pointing towards a problem if nothing is being learned.
-        print("Loss entropy = {}, KL-divergence between old and new policy = {}".format(
-            loss_entropy, kl_divergence))
+        # print("Loss entropy = {}, KL-divergence between old and new policy = {}".format(loss_entropy, kl_divergence))
+        info = dict(loss_entropy=loss_entropy.numpy(), kl_divergence=kl_divergence.numpy())
 
         # Mean loss across batch, shape [B] -> ()
-        return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=baseline_loss, axis=0)
+        return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=vf_loss, axis=0), info

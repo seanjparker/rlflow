@@ -68,27 +68,27 @@ def discount_all(values, decay, terminal):
     return list(reversed(discounted))
 
 
-def gae_helper(baseline, reward, gamma, gae_lambda, terminals, sequence_indices):
+def gae_helper(vf, reward, gamma, gae_lambda, terminals, sequence_indices):
     """
     Computes generalized advantage estimation.
     """
     deltas = []
     # Convert to array for simplicity.
-    baseline = baseline.numpy()
+    vf = vf.numpy()
     start_index = 0
     i = 0
     sequence_indices[-1] = True
-    for _ in range(len(baseline)):
+    for _ in range(len(vf)):
         if np.all(sequence_indices[i]):
             # Compute deltas for this subsequence.
             # Cannot do this all at once because we would need the correct offsets for each sub-sequence.
-            baseline_slice = list(baseline[start_index:i + 1])
+            vf_slice = list(vf[start_index:i + 1])
 
             if np.all(terminals[i]):
-                baseline_slice.append(0)
+                vf_slice.append(0)
             else:
-                baseline_slice.append(baseline[i])
-            adjusted_v = np.asarray(baseline_slice)
+                vf_slice.append(vf[i])
+            adjusted_v = np.asarray(vf_slice)
 
             # +1 because we want to include i-th value.
             delta = reward[start_index:i + 1] + gamma * adjusted_v[1:] - adjusted_v[:-1]
