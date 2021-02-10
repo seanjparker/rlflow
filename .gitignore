@@ -6,3 +6,6 @@ build/
 dist/
 *.so
 *.egg-info
+checkpoint
+logs
+model
