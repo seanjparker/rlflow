@@ -90,7 +90,7 @@ class HierarchicalAgent(object):
         self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), module=self.model,
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(0), module=self.model,
                                         optim=self.optimizer, vf_optim=self.vf_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 

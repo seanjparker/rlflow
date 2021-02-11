@@ -5,8 +5,6 @@ import sonnet as snt
 from graph_nets import utils_tf
 from xflowrl.agents.utils import gae_helper
 
-layers = tf.keras.layers
-
 
 def make_mlp_model(layer_size, num_layers, activate_final=True, activation=tf.nn.relu, name="mlp"):
     """

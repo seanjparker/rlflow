@@ -111,7 +111,7 @@ def main(argv):
     logger_inference.setLevel(logging.INFO)
 
     current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+    train_log_dir = 'logs/xflowrl/squeezenet/current_time/train'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
     print('Created Tensorboard log directory: {}'.format(train_log_dir))
 
@@ -129,7 +129,7 @@ def main(argv):
     current_graph_file, current_graph = graphs[0]
     print("Training on graph: {}".format(current_graph_file))
 
-    for current_episode in range(start_episode - 1, num_episodes):
+    for current_episode in range(start_episode, num_episodes):
         # Keep stepping
         terminal = False
         episode_reward = 0
@@ -147,8 +147,6 @@ def main(argv):
         state = env.reset()
         start_runtime = env.get_cost()
         print("Start runtime: {:.4f}".format(start_runtime))
-
-        agent.ckpt.step.assign_add(1)
 
         timestep = 0
         while not terminal:
@@ -200,7 +198,8 @@ def main(argv):
                 final_runtime = env.get_cost()
 
                 print("Final runtime: {:.4f}".format(final_runtime))
-                print("Difference:   {:+.4f}".format(final_runtime - start_runtime))
+                print("Difference:   {:+.4f} ({:+.2%})".format(
+                    final_runtime - start_runtime, ((final_runtime - start_runtime) / start_runtime)))
                 print("-"*40)
 
                 # Do an update after collecting specified number of batches.
@@ -240,6 +239,7 @@ def main(argv):
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():
+                        tf.summary.scalar('episode_reward', episode_reward, step=current_episode)
                         tf.summary.scalar('policy_loss', policy_loss, step=current_episode)
                         tf.summary.scalar('vf_loss', vf_loss, step=current_episode)
                         tf.summary.scalar('sub_policy_loss', sub_policy_loss, step=current_episode)
@@ -248,7 +248,9 @@ def main(argv):
                             tf.summary.scalar(k, v, step=current_episode)
 
                     agent.save()
-                    print("Checkpointed episode = {}".format(int(agent.ckpt.step)))
+                    print("Checkpoint Episode = {}".format(int(agent.ckpt.step)))
+
+        agent.ckpt.step.assign_add(1)
 
     output_file.close()
     agent.save()
