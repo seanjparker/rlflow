@@ -24,7 +24,9 @@ class HierarchicalAgent(object):
                  num_node_layers=2,
                  global_layer_size=8,
                  num_global_layers=2,
-                 message_passing_steps=1):
+                 message_passing_steps=1,
+                 network_name=None,
+                 checkpoint_timestamp=None):
         """
 
         Args:
@@ -47,6 +49,8 @@ class HierarchicalAgent(object):
             num_node_layers (int): Num layers for node aggregation MLP.
             global_layer_size (int): Hidden layer neurons.
             num_global_layers (int): Num layers for global aggregation MLP.
+            network_name (str): Name of the network that is being optimized.
+            checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
         self.num_actions = num_actions
         self.num_locations = num_locations
@@ -62,6 +66,7 @@ class HierarchicalAgent(object):
             message_passing_steps=message_passing_steps
         )
 
+        # Model is used to predict the xfer that will be applied to the graph
         self.model = GraphModel(
             num_actions=num_actions,
             discount=discount,
@@ -73,6 +78,7 @@ class HierarchicalAgent(object):
             add_noop=True
         )
 
+        # Model is used to predict the location at where the xfer will be applied
         self.sub_model = GraphModel(
             num_actions=num_locations,
             discount=discount,
@@ -86,12 +92,16 @@ class HierarchicalAgent(object):
             reduce_embedding=True
         )
 
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
         self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
+        if network_name is not None:
+            checkpoint_root += f'/{network_name}'
+        if checkpoint_timestamp is not None:
+            checkpoint_root += f'/{checkpoint_timestamp}'
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(0), module=self.model,
-                                        optim=self.optimizer, vf_optim=self.vf_optimizer)
+                                        optim=self.pi_optimizer, vf_optim=self.vf_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
@@ -177,44 +187,29 @@ class HierarchicalAgent(object):
         sub_log_probs = tf.convert_to_tensor(value=sub_log_probs)
         sub_vf_values = tf.convert_to_tensor(value=sub_vf_values)
 
-        # Eager update mechanism via gradient taping.
-        # Note two separate tapes for policy and value net.
+        # Update the policy and value networks of the xfer predication model
         with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
-            policy_loss, vf_loss, info = self.model.update(states, actions, log_probs, vf_values, rewards,
-                                                           terminals)
-            grads = tape.gradient(policy_loss, self.model.trainable_variables)
+            pi_loss, vf_loss, info = self.model.update(states, actions, log_probs, vf_values, rewards, terminals)
 
-        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-        # the code below filters these out. Comment out to check just in case.
-        grads = [grad if grad is not None else tf.zeros_like(var)
-                 for var, grad in zip(self.model.trainable_variables, grads)]
-        self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+        policy_grads = tape.gradient(pi_loss, self.model.policy_net.trainable_variables)
+        self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
 
-        vf_grads = vf_tape.gradient(vf_loss, self.model.trainable_variables)
-        vf_grads = [grad if grad is not None else tf.zeros_like(var)
-                          for var, grad in zip(self.model.trainable_variables, vf_grads)]
-        self.optimizer.apply_gradients(zip(vf_grads, self.model.trainable_variables))
+        value_grads = vf_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
+        self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))
 
-        # Update the sub model
-        with tf.GradientTape() as tape, tf.GradientTape() as sub_vf_tape:
-            sub_policy_loss, sub_vf_loss, _ = self.sub_model.update(states, sub_actions, sub_log_probs,
-                                                                    sub_vf_values,
+        # Update the policy and value networks of the location prediction model
+        with tf.GradientTape() as sub_tape, tf.GradientTape() as sub_vf_tape:
+            sub_policy_loss, sub_vf_loss, _ = self.sub_model.update(states, sub_actions, sub_log_probs, sub_vf_values,
                                                                     rewards, terminals)
-            grads = tape.gradient(sub_policy_loss, self.sub_model.trainable_variables)
-            vf_grads = sub_vf_tape.gradient(sub_vf_loss, self.sub_model.trainable_variables)
 
-        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-        # the code below filters these out. Comment out to check just in case.
-        grads = [grad if grad is not None else tf.zeros_like(var)
-                 for var, grad in zip(self.sub_model.trainable_variables, grads)]
-        self.optimizer.apply_gradients(zip(grads, self.sub_model.trainable_variables))
+        policy_grads = sub_tape.gradient(sub_policy_loss, self.sub_model.policy_net.trainable_variables)
+        self.pi_optimizer.apply_gradients(zip(policy_grads, self.sub_model.policy_net.trainable_variables))
 
-        vf_grads = [grad if grad is not None else tf.zeros_like(var)
-                          for var, grad in zip(self.sub_model.trainable_variables, vf_grads)]
-        self.optimizer.apply_gradients(zip(vf_grads, self.sub_model.trainable_variables))
+        vf_grads = sub_vf_tape.gradient(sub_vf_loss, self.sub_model.value_net.trainable_variables)
+        self.vf_optimizer.apply_gradients(zip(vf_grads, self.sub_model.value_net.trainable_variables))
 
         # Unpack eager tensor.
-        return policy_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
+        return pi_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
 
     def save(self):
         """Saves checkpoint to path."""

@@ -96,7 +96,14 @@ def graph_to_graphnet_tuple(
 
 
 class HierarchicalEnvironment(object):
-    def __init__(self, num_locations=100, real_measurements=False):
+    def __init__(self, num_locations=100, real_measurements=False, reward_function=None):
+        """
+        Args:
+            num_locations (int): number of possible locations to apply Graph Xfers
+            real_measurements (bool): If True, the environment will perform real-time measurements of the graph
+            reward_function (Callable): A custom reward function can
+                be provided with the signature, (last_runtime, new_runtime) -> reward
+        """
         self.graph = None
         self.rl_opt = None
 
@@ -109,16 +116,17 @@ class HierarchicalEnvironment(object):
         self.num_locations = num_locations
 
         self.real_measurements = real_measurements
+        self.custom_reward = reward_function
 
     def set_graph(self, graph):
         self.graph = graph
         self.rl_opt = PyRLOptimizer(graph)
 
-    def get_cost(self):
-        if not self.real_measurements:
-            return self.rl_opt.get_cost()
-        else:
+    def get_cost(self, real_measurement=None):
+        if self.real_measurements and real_measurement is None:
             return self.rl_opt.get_measured_runtime(self.graph)
+        else:
+            return self.rl_opt.get_cost()
 
     def reset(self):
         if not self.rl_opt:
@@ -224,9 +232,13 @@ class HierarchicalEnvironment(object):
 
         if new_graph:
             self.graph = new_graph
-            new_run_time = self.get_cost()
+            # Make sure to only use the estimated cost before final eval
+            new_run_time = self.get_cost(real_measurement=False)
 
-            reward = self.last_runtime - new_run_time  # Incremental reward
+            if self.custom_reward is not None:
+                reward = self.custom_reward(self.last_runtime, new_run_time)
+            else:
+                reward = self.last_runtime - new_run_time  # Incremental reward
             # reward = 0.  # End-of-episode reward
             self.last_runtime = new_run_time
         else:
