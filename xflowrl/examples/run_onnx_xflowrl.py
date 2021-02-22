@@ -18,37 +18,71 @@ import taso as ts
 from xflowrl.graphs.nasnet import build_graph_nasnet
 
 
-def load_graph(filename):
-    return ts.load_onnx(filename)
+def load_graph_from_file(filename):
+    print(f"Loading graph from file: {filename}")
+    clean_filename = filename.split('/')[-1].split('.')[0]
+    return clean_filename, ts.load_onnx(filename)
 
 
-def main(argv):
-    #graph = build_graph_bert()
-    #graph_files = glob.glob('graphs/**/*.onnx', recursive=True)
-    graph_files = ['graphs/squeezenet1.1.onnx']#, 'graphs/resnet18v1.onnx']
-    #graph_files = ['/tmp/tmponnx.onnx']
-    skip_files = []#{'graphs/vgg16.onnx', 'graphs/inception_v2.onnx', 'graphs/resnet34v1.onnx'}
+def load_graph_by_name(graph_name):
+    graphs = {
+        'BERT': build_graph_bert,
+        'NASnet': build_graph_nasnet
+    }
+    if graph_name not in graphs:
+        raise ValueError(f"Invalid graph name: {graph_name}")
+    else:
+        print(f"Building graph from name: {graph_name}")
+        return graph_name, graphs[graph_name]()
 
-    graphs = []
-    for graph_file in graph_files:
-        if graph_file in skip_files:
-            continue
-        print("Loading graph: {}".format(graph_file))
-        graphs.append((graph_file, load_graph(graph_file)))
 
-    #graph_files = []
-    #graphs = []
+def main(name, path, cont=None):
+    graph_name = graph = None
+    if name is not None:
+        graph_name, graph = load_graph_by_name(name)
+    elif path is not None:
+        graph_name, graph = load_graph_from_file(path)
 
-    #graph_files.append('NASnet')
-    #graphs.append(('NASnet', build_graph_nasnet()))
+    # Rewards should increase after a few hundred episodes.
+    # This is not particularly tuned, and clearly the way the state is converted to a graph
+    # is rather questionable, but it demonstrates all relevant mechanisms in principle.
+    logger_inference = logging.getLogger('log_inference')
+    logger_inference.setLevel(logging.INFO)
 
-    # graph_files.append('BERT')
-    # graphs.append(('BERT', build_graph_bert()))
+    timestamp = None
+    if cont:
+        output_filename = f'results_{cont}.csv'
+        info_filename = f'info_{cont}.txt'
+        logger_inference.addHandler(logging.FileHandler(f'log_training_{cont}'))
+        if not os.path.isfile(output_filename):
+            print(f'Continue error: No such file {output_filename}')
+            return None, None, None
 
-    graph_file, graph = graphs[0]
-    # graph = load_graph(graph_files[0])
+        train_log_dir = f'logs/xflowrl/{graph_name}/{cont}/train'
+        train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
-    env = HierarchicalEnvironment(real_measurements=True)
+        timestamp = cont
+        print("Continuing provided log")
+    else:
+        now = datetime.now()
+
+        output_filename = f'results_{now:%Y%m%d-%H%M%S}.csv'
+        info_filename = f'info_{now:%Y%m%d-%H%M%S}.txt'
+        logger_inference.addHandler(logging.FileHandler(f'log_training_{now:%Y%m%d-%H%M%S}'))
+
+        current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+        train_log_dir = f'logs/xflowrl/{graph_name}/{current_time}/train'
+        train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+
+        timestamp = current_time
+        print(f'Created Tensorboard log directory: {train_log_dir}')
+
+    # A custom reward function can be provided to the environment to replace the default
+    # incremental reward function
+    def custom_reward(last_runtime, new_runtime):
+        return last_runtime - new_runtime
+
+    env = HierarchicalEnvironment(real_measurements=False, reward_function=None)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions1
 
@@ -63,7 +97,7 @@ def main(argv):
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
         # Value function can have the same or a slightly more aggressive learning rate.
-        vf_learning_rate=0.0025,
+        vf_learning_rate=0.01,
         policy_layer_size=32,
         # This limits the aggressiveness of the update -> 0.2 is often the default value, 0.3
         # for a more aggressive update, 0.1 for a more conservative one.
@@ -98,51 +132,25 @@ def main(argv):
     rewards = []
     terminals = []
 
-    # Rewards should increase after a few hundred episodes.
-    # This is not particularly tuned, and clearly the way the state is converted to a graph
-    # is rather questionable, but it demonstrates all relevant mechanisms in principle.
-    now = datetime.now()
-
-    output_filename = 'results_{:%Y-%m-%d_%H-%M-%S}.csv'.format(now)
-    info_filename = 'info_{:%Y-%m-%d_%H-%M-%S}.txt'.format(now)
-
-    logger_inference = logging.getLogger('log_inference')
-    logger_inference.addHandler(logging.FileHandler('log_training_{:%Y-%m-%d_%H-%M-%S}'.format(now)))
-    logger_inference.setLevel(logging.INFO)
-
-    current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/xflowrl/squeezenet/current_time/train'
-    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-    print('Created Tensorboard log directory: {}'.format(train_log_dir))
-
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
         hp['reducer'] = 'tf.unsorted_segment_sum'
         json.dump({
             'hparams': hp,
-            'graphs': graph_files
+            'graphs': [graph_name]
         }, fp)
 
-    print("Output filename: {}".format(output_filename))
+    print(f'Output filename: {output_filename}')
     output_file = open(output_filename, 'wt')
 
-    current_graph_file, current_graph = graphs[0]
-    print("Training on graph: {}".format(current_graph_file))
+    print(f'Training on graph: {graph_name}')
 
     for current_episode in range(start_episode, num_episodes):
         # Keep stepping
         terminal = False
         episode_reward = 0
 
-        # Re-assign state to initial state.
-        #current_graph_file = graph_files[current_episode % len(graph_files)]
-        #current_graph = ts.load_onnx(current_graph_file)
-
-        env.set_graph(current_graph)
-
-        #ts.optimize(current_graph)
-        #print("Optimized")
-        #continue
+        env.set_graph(graph)
 
         state = env.reset()
         start_runtime = env.get_cost()
@@ -150,7 +158,8 @@ def main(argv):
 
         timestep = 0
         while not terminal:
-            main_action, main_log_prob, main_vf_value, sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
+            main_action, main_log_prob, main_vf_value, \
+            sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((main_action, sub_action))
@@ -174,15 +183,16 @@ def main(argv):
             state = next_state
             episode_reward += reward
 
-            logger_inference.info("Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
-                current_episode,
-                timestep,
-                current_graph_file,
-                main_action,
-                sub_action,
-                reward,
-                terminal
-            ))
+            logger_inference.info(
+                "Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
+                    current_episode,
+                    timestep,
+                    graph_name,
+                    main_action,
+                    sub_action,
+                    reward,
+                    terminal
+                ))
             timestep += 1
 
             # If terminal, reset.
@@ -194,13 +204,12 @@ def main(argv):
                 output_file.flush()
 
                 # Env reset is handled in outer loop
-
                 final_runtime = env.get_cost()
 
                 print("Final runtime: {:.4f}".format(final_runtime))
                 print("Difference:   {:+.4f} ({:+.2%})".format(
                     final_runtime - start_runtime, ((final_runtime - start_runtime) / start_runtime)))
-                print("-"*40)
+                print("-" * 40)
 
                 # Do an update after collecting specified number of batches.
                 # This is a hyper-parameter that will require a lot of experimentation.

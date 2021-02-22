@@ -88,6 +88,7 @@ def run_xflowrl_inference(graph, name='Untitled', env=None, model_file=None):
 
     return start_runtime, final_runtime_rl, time_taken_rl
 
+
 def run_xflowrl_optimize(graphs, env=None, cont=None):
     graph_file, graph = graphs[0]
 
