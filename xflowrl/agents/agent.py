@@ -115,16 +115,10 @@ class Agent(object):
         with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
             pi_loss, vf_loss = self.model.update(states, actions, log_probs, vf_values, rewards, terminals)
 
-        # N.b.: It seems like if a grad is 0, this is interpreted as 'grads do not exist' and throws a warning.
-        # the code below filters these out. Comment out to check just in case.
         policy_grads = tape.gradient(pi_loss, self.model.policy_net.trainable_variables)
-        policy_grads = [grad if grad is not None else tf.zeros_like(var)
-                        for var, grad in zip(self.model.policy_net.trainable_variables, policy_grads)]
         self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
 
         value_grads = vf_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
-        value_grads = [grad if grad is not None else tf.zeros_like(var)
-                       for var, grad in zip(self.model.value_net.trainable_variables, value_grads)]
         self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))
 
         # Unpack eager tensor.
