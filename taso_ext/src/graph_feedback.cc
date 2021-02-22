@@ -509,12 +509,13 @@ float RLOptimizer::get_measured_runtime(Graph* graph)
   assert(opList.size() == opBaseList.size());
 
   float result = graph->model->measure_oplist_runtime(opBaseList);
-
+  // printf("running real device to get runtime\n");
   // Now free GPU memory from the opList
   for (int i = 0; i < opBaseList.size(); i++) {
     OpBase* opBase = opBaseList[i];
     opBase->unmap();
-    free(opBase);
+    delete opBaseList[i];
+    // free(opBase);
     opBase = nullptr;
   }
 
