@@ -8,7 +8,7 @@ import taso as ts
 import sys
 import argparse
 import json
-import time
+import os
 
 
 # Load graph
@@ -22,13 +22,19 @@ import time
 
 
 def save_record(results, graph_name, timestamp):
-    with open(f'results/{graph_name}/{timestamp}/results.json', 'w') as outfile:
-        json.dump(results, outfile)
+    print(results)
+    print('Writing results to file...')
+    path = f'./results/{graph_name}/{timestamp}/results.json'
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w+') as f:
+        json.dump(results, f)
+    print('Done!')
 
 
 def store_runtimes(name, runtimes):
     return {name: dict(
-        zip(('mean', 'std', 'min', 'max'), (np.mean(runtimes), np.std(runtimes), np.min(runtimes), np.max(runtimes))))}
+        zip(('mean', 'std', 'min', 'max'),
+            (str(np.mean(runtimes)), str(np.std(runtimes)), str(np.min(runtimes)), str(np.max(runtimes)))))}
 
 
 def get_xflowrl_runtime(graph, graph_name, checkpoint):
@@ -42,7 +48,7 @@ def get_xflowrl_runtime(graph, graph_name, checkpoint):
         num_actions=num_actions,
         num_locations=100,
         discount=0.99,
-        gae_lambda=1.0,
+        gae_lambda=0.97,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
@@ -78,28 +84,30 @@ def get_xflowrl_runtime(graph, graph_name, checkpoint):
 
 def main(graph_name_or_path, timestamp):
     graph_name, graph = load_graph(graph_name_or_path)
-    results = dict(graph_name=dict())
+    results = {graph_name: []}
 
     # Get the base runtime of the graph w/o optimisations applied
     runtimes = np.zeros(100, dtype=np.float32)
+    print(f'Getting runtime on {graph_name} for baseline')
     for i in range(100):
         runtimes[i] = graph.run_time_memorysafe()
-    results[graph_name] = store_runtimes('baseline', runtimes)
+    results[graph_name].append(store_runtimes('baseline', runtimes))
     save_record(results, graph_name, timestamp)
 
     # Get the optimised runtime using TASO
     ts_optimized = ts.optimize(graph)
     runtimes = np.zeros(100, dtype=np.float32)
+    print(f'Getting runtime on {graph_name} for TASO')
     for i in range(100):
         runtimes[i] = ts_optimized.run_time_memorysafe()
-    results[graph_name] = store_runtimes('taso', runtimes)
+    results[graph_name].append(store_runtimes('taso', runtimes))
     save_record(results, graph_name, timestamp)
 
+    graph_name, graph = load_graph(graph_name_or_path)
     # Get the optimised runtime using xflowrl (loading from checkpoint)
+    print(f'Getting runtime on {graph_name} for xflowrl')
     runtimes = get_xflowrl_runtime(graph, graph_name, timestamp)
-    for i in range(100):
-        runtimes[i] = ts_optimized.run_time_memorysafe()
-    results[graph_name] = store_runtimes('xflowrl', runtimes)
+    results[graph_name].append(store_runtimes('xflowrl', runtimes))
     save_record(results, graph_name, timestamp)
 
 

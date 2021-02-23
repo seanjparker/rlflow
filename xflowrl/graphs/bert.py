@@ -1,7 +1,5 @@
 import taso as ts
 
-from xflowrl.graphs.util import export_onnx
-
 seq_length = 64
 hidden_dims = 1024
 
@@ -49,6 +47,7 @@ def _attention(graph, input, heads):
 
 
 if __name__ == '__main__':
+    from xflowrl.graphs.util import export_onnx
     built_graph = build_graph_bert()
     export_onnx(built_graph, "bert.onnx")
 
