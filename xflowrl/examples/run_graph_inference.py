@@ -32,7 +32,7 @@ def store_runtimes(name, runtimes):
 
 
 def get_xflowrl_runtime(graph, graph_name, checkpoint):
-    env = HierarchicalEnvironment()
+    env = HierarchicalEnvironment(real_measurements=True)
     env.set_graph(graph)
     state = env.reset()
 
