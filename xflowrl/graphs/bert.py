@@ -1,4 +1,3 @@
-import onnx
 import taso as ts
 
 from xflowrl.graphs.util import export_onnx
@@ -7,7 +6,17 @@ seq_length = 64
 hidden_dims = 1024
 
 
-def attention(graph, input, heads):
+def build_graph_bert():
+    graph = ts.new_graph()
+    graph_in = graph.new_input(dims=(seq_length, hidden_dims))
+    graph_in = graph.relu(graph_in)
+    t = graph_in
+    for m in range(8):
+        t = _attention(graph, t, 16)
+    return graph
+
+
+def _attention(graph, input, heads):
     d_model = input.dim(1)
     d_k = d_model // heads
     assert input.dim(1) % heads == 0
@@ -40,13 +49,7 @@ def attention(graph, input, heads):
 
 
 if __name__ == '__main__':
-    graph = ts.new_graph()
-    graph_in = graph.new_input(dims=(seq_length, hidden_dims))
-    graph_in = graph.relu(graph_in)
-    t = graph_in
-    for m in range(8):
-        t = attention(graph, t, 16)
-
-    export_onnx(graph, "bert.onnx")
+    built_graph = build_graph_bert()
+    export_onnx(built_graph, "bert.onnx")
 
 

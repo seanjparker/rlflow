@@ -11,29 +11,7 @@ import tensorflow as tf
 
 from xflowrl.agents.hierarchical_agent import HierarchicalAgent
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
-from xflowrl.graphs.bert import build_graph_bert
-
-import taso as ts
-
-from xflowrl.graphs.nasnet import build_graph_nasnet
-
-
-def load_graph_from_file(filename):
-    print(f"Loading graph from file: {filename}")
-    clean_filename = filename.split('/')[-1].split('.')[0]
-    return clean_filename, ts.load_onnx(filename)
-
-
-def load_graph_by_name(graph_name):
-    graphs = {
-        'BERT': build_graph_bert,
-        'NASnet': build_graph_nasnet
-    }
-    if graph_name not in graphs:
-        raise ValueError(f"Invalid graph name: {graph_name}")
-    else:
-        print(f"Building graph from name: {graph_name}")
-        return graph_name, graphs[graph_name]()
+from xflowrl.graphs.util import load_graph_by_name, load_graph_from_file
 
 
 def main(name, path, cont=None):
@@ -82,15 +60,17 @@ def main(name, path, cont=None):
     def custom_reward(last_runtime, new_runtime):
         return last_runtime - new_runtime
 
-    env = HierarchicalEnvironment(real_measurements=False, reward_function=None)
+    num_locations = 200
+
+    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=None)
     env.set_graph(graph)
-    env.reset()  # Need to do this to get the number of actions1
+    env.reset()  # Need to do this to get the number of actions
 
     num_actions = env.get_num_actions()
 
     hparams = dict(
         num_actions=num_actions,
-        num_locations=100,
+        num_locations=num_locations,
         discount=0.99,
         gae_lambda=1.0,
         reducer=tf.math.unsorted_segment_sum,
@@ -263,8 +243,6 @@ def main(name, path, cont=None):
 
     output_file.close()
     agent.save()
-    # Export trained model to current directory with checkpoint name "mymodel".
-    # agent.save("mymodel")
 
 
 if __name__ == '__main__':
