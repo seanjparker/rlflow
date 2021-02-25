@@ -1,9 +1,8 @@
+import os
+
 from xflowrl.agents.models import GraphModel, GraphNetwork
 from xflowrl.agents.utils import make_eager_graph_tuple
 import tensorflow as tf
-import graph_nets as gn
-import numpy as np
-import datetime
 
 
 class HierarchicalAgent(object):
@@ -94,6 +93,9 @@ class HierarchicalAgent(object):
 
         self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
         self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
+
+        self.network_name = network_name
+        self.checkpoint_timestamp = checkpoint_timestamp
 
         checkpoint_root = "./checkpoint/models"
         if network_name is not None:
@@ -210,6 +212,15 @@ class HierarchicalAgent(object):
 
         # Unpack eager tensor.
         return pi_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
+
+    def export(self, graph):
+        from taso import export_onnx
+        from onnx import save as save_onnx
+
+        onnx_model = export_onnx(graph)
+        path = f'./models/{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        save_onnx(onnx_model, path)
 
     def save(self):
         """Saves checkpoint to path."""
