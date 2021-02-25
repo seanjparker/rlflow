@@ -77,10 +77,10 @@ Also, for some builds to succeed I had to set the `LD_LIBRARY_PATH` variable:
 export LD_LIRBARY_PATH=/usr/local/lib
 ```
 
-At the time of the experiments, we were working on commit `a310b60f`:
+At the time of the experiments, we were working on commit `0b01194`:
 
 ```bash
-git checkout a310b60f
+git checkout 0b01194
 ```
 
 We also had to make slight adjustments to the base library for our interaction with

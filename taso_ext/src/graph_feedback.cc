@@ -447,8 +447,9 @@ float RLOptimizer::get_measured_runtime(Graph* graph)
       }
       case OP_BATCHNORM:
       {
+        BatchNorm* batchnorm = (BatchNorm*) op.ptr;
         assert(inList.size() == 5);
-        opPtr = new BatchNorm(graph->model, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4]);
+        opPtr = new BatchNorm(graph->model, inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], batchnorm->epsilon);
         break;
       }
       case OP_SPLIT:
@@ -509,7 +510,6 @@ float RLOptimizer::get_measured_runtime(Graph* graph)
   assert(opList.size() == opBaseList.size());
 
   float result = graph->model->measure_oplist_runtime(opBaseList);
-  // printf("running real device to get runtime\n");
   // Now free GPU memory from the opList
   for (int i = 0; i < opBaseList.size(); i++) {
     OpBase* opBase = opBaseList[i];
