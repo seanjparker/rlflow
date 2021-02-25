@@ -103,10 +103,12 @@ def main(graph_name_or_path, timestamp):
     results[graph_name].append(store_runtimes('taso', runtimes))
     save_record(results, graph_name, timestamp)
 
-    graph_name, graph = load_graph(graph_name_or_path)
     # Get the optimised runtime using xflowrl (loading from checkpoint)
     print(f'Getting runtime on {graph_name} for xflowrl')
-    runtimes = get_xflowrl_runtime(graph, graph_name, timestamp)
+    # runtimes = get_xflowrl_runtime(graph, graph_name, timestamp)
+    graph_name, graph = load_graph(f'./models/{graph_name}/{timestamp}/{graph_name}.onnx')
+    for i in range(100):
+        runtimes[i] = graph.run_time_memorysafe()
     results[graph_name].append(store_runtimes('xflowrl', runtimes))
     save_record(results, graph_name, timestamp)
 
