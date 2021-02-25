@@ -27,33 +27,22 @@ def main(name, path, cont=None):
     logger_inference = logging.getLogger('log_inference')
     logger_inference.setLevel(logging.INFO)
 
-    timestamp = None
+    path_prefix = f'logs/xflowrl/{graph_name}/'
     if cont:
-        output_filename = f'results_{cont}.csv'
-        info_filename = f'info_{cont}.txt'
-        logger_inference.addHandler(logging.FileHandler(f'log_training_{cont}'))
-        if not os.path.isfile(output_filename):
-            print(f'Continue error: No such file {output_filename}')
-            return None, None, None
-
-        train_log_dir = f'logs/xflowrl/{graph_name}/{cont}/train'
-        train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-
+        path_prefix += cont
         timestamp = cont
         print("Continuing provided log")
     else:
-        now = datetime.now()
-
-        output_filename = f'results_{now:%Y%m%d-%H%M%S}.csv'
-        info_filename = f'info_{now:%Y%m%d-%H%M%S}.txt'
-        logger_inference.addHandler(logging.FileHandler(f'log_training_{now:%Y%m%d-%H%M%S}'))
-
         current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
-        train_log_dir = f'logs/xflowrl/{graph_name}/{current_time}/train'
-        train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-
+        path_prefix += current_time
         timestamp = current_time
-        print(f'Created Tensorboard log directory: {train_log_dir}')
+        print(f'Created Tensorboard log directory: {path_prefix}')
+
+    output_filename = f'{path_prefix}/results.csv'
+    info_filename = f'{path_prefix}/info.txt'
+    logger_inference.addHandler(logging.FileHandler(f'{path_prefix}/log_training'))
+    train_log_dir = f'{path_prefix}/train'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     # A custom reward function can be provided to the environment to replace the default
     # incremental reward function
@@ -242,7 +231,7 @@ def main(name, path, cont=None):
         agent.ckpt.step.assign_add(1)
 
     output_file.close()
-    agent.save()
+    agent.export(env.graph)
 
 
 if __name__ == '__main__':
