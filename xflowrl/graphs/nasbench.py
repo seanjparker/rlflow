@@ -9,7 +9,7 @@ from tf2onnx import optimizer, utils
 from tf2onnx.tfonnx import process_tf_graph, tf_optimize
 from tf2onnx.loader import freeze_session
 
-from xflowrl.graphs.onnx import load_onnx_model
+from xflowrl.graphs.onnx_util import load_onnx_model
 
 
 class NasbenchTASO(object):

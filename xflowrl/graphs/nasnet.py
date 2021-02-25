@@ -1,3 +1,5 @@
+# import onnx
+import onnx
 import taso as ts
 
 
@@ -75,21 +77,28 @@ def build_graph_nasnet():
         return graph.concat(1, outputs)
 
     graph = ts.new_graph()
-    input = graph.new_input(dims=(1, 3, 224, 224))
+    in_graph = graph.new_input(dims=(1, 3, 224, 224))
     weight = graph.new_weight(dims=(64, 3, 7, 7))
-    input = graph.conv2d(input=input, weight=weight, strides=(2, 2),
+    in_graph = graph.conv2d(input=in_graph, weight=weight, strides=(2, 2),
                          padding="SAME", activation="RELU")
-    input = graph.maxpool2d(input=input, kernels=(3, 3), strides=(2, 2), padding="SAME")
+    in_graph = graph.maxpool2d(input=in_graph, kernels=(3, 3), strides=(2, 2), padding="SAME")
 
     out_channels = 64
     for i in range(3):
-        prev = input
-        cur = input
+        prev = in_graph
+        cur = in_graph
         for j in range(5):
             t = normal_cell(graph, prev, cur, out_channels)
             prev = cur
             cur = t
         out_channels *= 2
-        input = reduction_cell(graph, prev, cur, out_channels)
+        in_graph = reduction_cell(graph, prev, cur, out_channels)
 
     return graph
+
+
+if __name__ == '__main__':
+    #from xflowrl.graphs.util import export_onnx
+    built_graph = build_graph_nasnet()
+    onnx_model = ts.export_onnx(built_graph)
+    onnx.save(onnx_model, 'nasneta.onnx')
