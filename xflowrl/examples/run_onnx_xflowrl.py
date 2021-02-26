@@ -24,34 +24,35 @@ def main(name, path, cont=None):
     # Rewards should increase after a few hundred episodes.
     # This is not particularly tuned, and clearly the way the state is converted to a graph
     # is rather questionable, but it demonstrates all relevant mechanisms in principle.
-    logger_inference = logging.getLogger('log_inference')
-    logger_inference.setLevel(logging.INFO)
+    # logger_inference = logging.getLogger('log_inference')
+    # logger_inference.setLevel(logging.INFO)
 
     path_prefix = f'logs/xflowrl/{graph_name}/'
     if cont:
         path_prefix += cont
         timestamp = cont
-        print("Continuing provided log")
+        print('Continuing provided log')
     else:
-        current_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+        current_time = datetime.now().strftime('%Y%m%d-%H%M%S')
         path_prefix += current_time
         timestamp = current_time
+        os.makedirs(os.path.dirname(path_prefix), exist_ok=True)
         print(f'Created Tensorboard log directory: {path_prefix}')
 
     output_filename = f'{path_prefix}/results.csv'
     info_filename = f'{path_prefix}/info.txt'
-    logger_inference.addHandler(logging.FileHandler(f'{path_prefix}/log_training'))
+    # logger_inference.addHandler(logging.FileHandler(f'{path_prefix}/log_training'))
     train_log_dir = f'{path_prefix}/train'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     # A custom reward function can be provided to the environment to replace the default
     # incremental reward function
     def custom_reward(last_runtime, new_runtime):
-        return last_runtime - new_runtime
+        return np.sqrt(new_runtime)
 
     num_locations = 200
 
-    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=None)
+    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=custom_reward)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions
 
@@ -74,7 +75,7 @@ def main(name, path, cont=None):
         message_passing_steps=5
     )
 
-    num_episodes = 2000  # Todo: change
+    num_episodes = 660  # Todo: change
 
     # How often will we update?
     episodes_per_batch = 10  # Todo: change
@@ -82,7 +83,7 @@ def main(name, path, cont=None):
     agent = HierarchicalAgent(**hparams)
     agent.load()
     start_episode = int(agent.ckpt.step)
-    print("Starting from episode = {}".format(start_episode))
+    print(f'Starting from episode = {start_episode}')
 
     # Demonstrating a simple training loop - collect a few samples, transform them to graph inputs,
     # update occasionally.
@@ -123,7 +124,7 @@ def main(name, path, cont=None):
 
         state = env.reset()
         start_runtime = env.get_cost()
-        print("Start runtime: {:.4f}".format(start_runtime))
+        print(f'Start runtime: {start_runtime:.4f}')
 
         timestep = 0
         while not terminal:
@@ -152,16 +153,16 @@ def main(name, path, cont=None):
             state = next_state
             episode_reward += reward
 
-            logger_inference.info(
-                "Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
-                    current_episode,
-                    timestep,
-                    graph_name,
-                    main_action,
-                    sub_action,
-                    reward,
-                    terminal
-                ))
+            #logger_inference.info(
+            #    "Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
+            #        current_episode,
+            #        timestep,
+            #        graph_name,
+            #        main_action,
+            #        sub_action,
+            #        reward,
+            #        terminal
+            #    ))
             timestep += 1
 
             # If terminal, reset.
@@ -175,10 +176,10 @@ def main(name, path, cont=None):
                 # Env reset is handled in outer loop
                 final_runtime = env.get_cost()
 
-                print("Final runtime: {:.4f}".format(final_runtime))
-                print("Difference:   {:+.4f} ({:+.2%})".format(
-                    final_runtime - start_runtime, ((final_runtime - start_runtime) / start_runtime)))
-                print("-" * 40)
+                print(f'Final runtime:\t{final_runtime:.4f}')
+                print(f'Difference:\t'
+                      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
+                print('-' * 40)
 
                 # Do an update after collecting specified number of batches.
                 # This is a hyper-parameter that will require a lot of experimentation.
@@ -201,8 +202,8 @@ def main(name, path, cont=None):
                         terminals=terminals
                     )
                     # Loss should be decreasing.
-                    print("policy loss = {}, vf loss = {}".format(policy_loss, vf_loss))
-                    print("sub policy loss = {}, sub vf loss = {}".format(sub_policy_loss, sub_vf_loss))
+                    print(f'policy loss = {policy_loss}, vf loss = {vf_loss}')
+                    print(f'sub policy loss = {sub_policy_loss}, sub vf loss = {sub_vf_loss}')
 
                     # Reset buffers.
                     states = []
@@ -226,12 +227,18 @@ def main(name, path, cont=None):
                             tf.summary.scalar(k, v, step=current_episode)
 
                     agent.save()
-                    print("Checkpoint Episode = {}".format(int(agent.ckpt.step)))
+                    print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
 
         agent.ckpt.step.assign_add(1)
 
     output_file.close()
-    agent.export(env.graph)
+    # agent.export(env.graph)
+
+    print('running for real')
+    runtimes = np.zeros(10, dtype=np.float32)
+    for i in range(10):
+        runtimes[i] = env.get_cost(real_measurement=True)
+    print(runtimes)
 
 
 if __name__ == '__main__':
