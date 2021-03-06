@@ -123,7 +123,7 @@ class HierarchicalEnvironment(object):
         self.rl_opt = PyRLOptimizer(graph)
 
     def get_cost(self, real_measurement=None):
-        if self.real_measurements and real_measurement is None:
+        if self.real_measurements or real_measurement:
             return self.rl_opt.get_measured_runtime(self.graph)
         else:
             return self.rl_opt.get_cost()

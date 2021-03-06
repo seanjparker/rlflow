@@ -8,4 +8,5 @@ dist/
 *.egg-info
 checkpoint
 logs
-model
+models
+.ipynb_checkpoints

@@ -214,13 +214,13 @@ class HierarchicalAgent(object):
         return pi_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
 
     def export(self, graph):
-        from taso import export_onnx
-        from onnx import save as save_onnx
+        import taso
+        import onnx
 
-        onnx_model = export_onnx(graph)
+        onnx_model = taso.export_onnx(graph)
         path = f'./models/{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        save_onnx(onnx_model, path)
+        onnx.save(onnx_model, path)
 
     def save(self):
         """Saves checkpoint to path."""
