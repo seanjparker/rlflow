@@ -126,6 +126,7 @@ def main(path_or_name, cont=None):
         # Keep stepping
         terminal = False
         episode_reward = 0
+        xfers_applied = {}
 
         env.set_graph(graph)
 
@@ -191,6 +192,7 @@ def main(path_or_name, cont=None):
                 print(f'Final runtime:\t{final_runtime:.4f}')
                 print(f'Difference:\t'
                       f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
+                print(xfers_applied)
                 print('-' * 40)
 
                 # Do an update after collecting specified number of batches.
@@ -247,7 +249,6 @@ def main(path_or_name, cont=None):
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
-
         agent.ckpt.step.assign_add(1)
 
     output_file.close()

@@ -23,7 +23,6 @@ def plot_xfer_heatmap(xfer_mapping):
     # sorted_xfers = OrderedDict(sorted(xfer_mapping.items(), key=lambda x: int(x[0])))
     df = pd.DataFrame.from_dict(converted_mapping)
     # df_formatted = df.pivot('graph', 'xfer', 'count')
-    print(df)
     sns.set_theme(style='darkgrid')
     ax = sns.barplot(x='xfer', y='count', data=df)
     return ax.get_figure()
