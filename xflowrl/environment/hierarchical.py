@@ -113,6 +113,7 @@ class HierarchicalEnvironment(object):
 
         self.initial_runtime = 0.0
         self.last_runtime = 0.0
+        self.measurement_info = dict()
         self.num_locations = num_locations
 
         self.real_measurements = real_measurements
@@ -127,6 +128,11 @@ class HierarchicalEnvironment(object):
             return self.rl_opt.get_measured_runtime(self.graph)
         else:
             return self.rl_opt.get_cost()
+
+    def get_detailed_costs(self):
+        new_run_time, flops, mem_acc, num_kernels = self.graph.get_costs()
+        costs_dict = dict(runtime=new_run_time, flops=flops, mem_acc=mem_acc, num_kernels=num_kernels)
+        return costs_dict
 
     def reset(self):
         if not self.rl_opt:
@@ -233,14 +239,18 @@ class HierarchicalEnvironment(object):
         if new_graph:
             self.graph = new_graph
             # Make sure to only use the estimated cost before final eval
-            new_run_time = self.get_cost(real_measurement=False)
+            # new_run_time = self.get_cost(real_measurement=False)
+            costs_dict = self.get_detailed_costs()
 
             if self.custom_reward is not None:
-                reward = self.custom_reward(self.last_runtime, new_run_time)
+                for k, v in costs_dict.items():
+                    costs_dict[k] = self._normalize_measurements(k, v)
+                reward = self.custom_reward(self.last_runtime, costs_dict)
             else:
-                reward = self.last_runtime - new_run_time  # Incremental reward
+                reward = self.last_runtime - costs_dict['runtime']  # Incremental reward
+
             # reward = 0.  # End-of-episode reward
-            self.last_runtime = new_run_time
+            self.last_runtime = costs_dict['runtime']
         else:
             print("Invalid action: xfer {} with location {}".format(xfer_id, location_id))
             new_run_time = 0.
@@ -254,3 +264,13 @@ class HierarchicalEnvironment(object):
             terminal = True
 
         return new_state, reward, terminal, None
+
+    def _normalize_measurements(self, x_key, x):
+        if x_key not in self.measurement_info:
+            self.measurement_info[x_key] = []
+        self.measurement_info[x_key].append(x)
+
+        val = self.measurement_info[x_key]
+        x_min, x_max = np.min(val), np.max(val)
+        return 2 * ((x - x_min) / (x_max - x_min + 1e-6)) - 1
+

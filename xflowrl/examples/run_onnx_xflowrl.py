@@ -11,15 +11,12 @@ import tensorflow as tf
 
 from xflowrl.agents.hierarchical_agent import HierarchicalAgent
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
-from xflowrl.graphs.util import load_graph_by_name, load_graph_from_file
+from xflowrl.graphs.util import load_graph
+from xflowrl.util.util import plot_xfer_heatmap, plot_to_image
 
 
-def main(name, path, cont=None):
-    graph_name = graph = None
-    if name is not None:
-        graph_name, graph = load_graph_by_name(name)
-    elif path is not None:
-        graph_name, graph = load_graph_from_file(path)
+def main(path_or_name, cont=None):
+    graph_name, graph = load_graph(path_or_name)
 
     # Rewards should increase after a few hundred episodes.
     # This is not particularly tuned, and clearly the way the state is converted to a graph
@@ -41,18 +38,20 @@ def main(name, path, cont=None):
 
     output_filename = f'{path_prefix}/results.csv'
     info_filename = f'{path_prefix}/info.txt'
-    # logger_inference.addHandler(logging.FileHandler(f'{path_prefix}/log_training'))
+    runtime_info_filename = f'{path_prefix}/runtime_info.json'
     train_log_dir = f'{path_prefix}/train'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     # A custom reward function can be provided to the environment to replace the default
     # incremental reward function
-    def custom_reward(last_runtime, new_runtime):
-        return np.sqrt(new_runtime)
+    def custom_reward(last_runtime, norm_costs):
+        new_runtime, flops, mem_acc, num_kernels = norm_costs['runtime'], norm_costs['flops'], \
+                                                   norm_costs['mem_acc'], norm_costs['num_kernels']
+        return new_runtime
 
     num_locations = 200
 
-    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=custom_reward)
+    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=None)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions
 
@@ -75,7 +74,7 @@ def main(name, path, cont=None):
         message_passing_steps=5
     )
 
-    num_episodes = 660  # Todo: change
+    num_episodes = 2000  # Todo: change
 
     # How often will we update?
     episodes_per_batch = 10  # Todo: change
@@ -102,6 +101,9 @@ def main(name, path, cont=None):
     rewards = []
     terminals = []
 
+    xfers_applied = {}
+    detailed_costs = []
+
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
         hp['reducer'] = 'tf.unsorted_segment_sum'
@@ -111,10 +113,15 @@ def main(name, path, cont=None):
         }, fp)
 
     print(f'Output filename: {output_filename}')
-    output_file = open(output_filename, 'wt')
+    output_file = open(output_filename, 'at')
+
+    try:
+        with open(runtime_info_filename, 'r', encoding='utf-8') as f:
+            detailed_costs = json.load(f)
+    except FileNotFoundError:
+        detailed_costs = []
 
     print(f'Training on graph: {graph_name}')
-
     for current_episode in range(start_episode, num_episodes):
         # Keep stepping
         terminal = False
@@ -153,7 +160,12 @@ def main(name, path, cont=None):
             state = next_state
             episode_reward += reward
 
-            #logger_inference.info(
+            # Store the xfer applied
+            if str(main_action[0]) not in xfers_applied:
+                xfers_applied[str(main_action[0])] = 0
+            xfers_applied[str(main_action[0])] += 1
+
+            # logger_inference.info(
             #    "Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
             #        current_episode,
             #        timestep,
@@ -216,6 +228,10 @@ def main(name, path, cont=None):
                     rewards = []
                     terminals = []
 
+                    detailed_costs.append(env.get_detailed_costs())
+                    with open(runtime_info_filename, 'w', encoding='utf-8') as f:
+                        json.dump(detailed_costs, f, ensure_ascii=False, indent=4)
+
                     # Log to tensorboard
                     with train_summary_writer.as_default():
                         tf.summary.scalar('episode_reward', episode_reward, step=current_episode)
@@ -226,19 +242,16 @@ def main(name, path, cont=None):
                         for k, v in info.items():
                             tf.summary.scalar(k, v, step=current_episode)
 
+                        figure = plot_xfer_heatmap(xfers_applied)
+                        tf.summary.image('xfers Applied', plot_to_image(figure), max_outputs=10, step=current_episode)
+
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
 
         agent.ckpt.step.assign_add(1)
 
     output_file.close()
-    # agent.export(env.graph)
-
-    print('running for real')
-    runtimes = np.zeros(10, dtype=np.float32)
-    for i in range(10):
-        runtimes[i] = env.get_cost(real_measurement=True)
-    print(runtimes)
+    agent.export(env.graph)
 
 
 if __name__ == '__main__':
