@@ -47,7 +47,7 @@ def main(path_or_name, cont=None):
     def custom_reward(last_runtime, norm_costs):
         new_runtime, flops, mem_acc, num_kernels = norm_costs['runtime'], norm_costs['flops'], \
                                                    norm_costs['mem_acc'], norm_costs['num_kernels']
-        return new_runtime
+        return new_runtime * 0.5 + mem_acc * 0.5
 
     num_locations = 200
 

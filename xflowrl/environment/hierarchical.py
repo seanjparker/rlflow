@@ -1,3 +1,4 @@
+from collections import deque
 from functools import partial
 
 import numpy as np
@@ -247,7 +248,7 @@ class HierarchicalEnvironment(object):
                     costs_dict[k] = self._normalize_measurements(k, v)
                 reward = self.custom_reward(self.last_runtime, costs_dict)
             else:
-                reward = self.last_runtime - costs_dict['runtime']  # Incremental reward
+                reward = costs_dict['runtime']  # Incremental reward
 
             # reward = 0.  # End-of-episode reward
             self.last_runtime = costs_dict['runtime']
