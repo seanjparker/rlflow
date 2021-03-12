@@ -1,3 +1,4 @@
+import argparse
 import copy
 import json
 import sys
@@ -5,6 +6,7 @@ import glob
 import time
 import logging
 from datetime import datetime
+import os
 
 import numpy as np
 import tensorflow as tf
@@ -61,7 +63,7 @@ def main(path_or_name, cont=None):
         num_actions=num_actions,
         num_locations=num_locations,
         discount=0.99,
-        gae_lambda=1.0,
+        gae_lambda=0.97,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
         learning_rate=0.0025,
@@ -71,7 +73,9 @@ def main(path_or_name, cont=None):
         # This limits the aggressiveness of the update -> 0.2 is often the default value, 0.3
         # for a more aggressive update, 0.1 for a more conservative one.
         clip_ratio=0.3,
-        message_passing_steps=5
+        message_passing_steps=5,
+        network_name=graph_name,
+        checkpoint_timestamp=timestamp
     )
 
     num_episodes = 2000  # Todo: change
@@ -256,4 +260,9 @@ def main(path_or_name, cont=None):
 
 
 if __name__ == '__main__':
-    main(sys.argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--graph', required=True, help='Name of the graph, or file path')
+    parser.add_argument('--timestamp',
+                        help='Timestamp of the checkpoint to evaluate in the format YYYYMMDD-HHMMSS')
+    args = parser.parse_args(sys.argv[1:])
+    main(args.graph, args.timestamp)
