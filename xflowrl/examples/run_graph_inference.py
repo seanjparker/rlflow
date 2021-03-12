@@ -40,7 +40,7 @@ def store_runtimes(name, runtimes):
 def get_xflowrl_runtime(graph, graph_name, checkpoint):
     env = HierarchicalEnvironment(real_measurements=True)
     env.set_graph(graph)
-    state = env.reset()
+    env.reset()
 
     num_actions = env.get_num_actions()
 
@@ -64,18 +64,22 @@ def get_xflowrl_runtime(graph, graph_name, checkpoint):
     )
 
     agent = HierarchicalAgent(**hparams)
-    agent.act(state, explore=True)
     agent.load()
 
     env.set_graph(graph)
     state = env.reset()
 
+    start_runtime = env.get_cost()
+    t_reward = 0
     terminal = False
     while not terminal:
         main_action, _, _, sub_action, _, _ = agent.act(states=state, explore=False)
-        next_state, _, terminal, _ = env.step((main_action, sub_action))
+        next_state, rew, terminal, _ = env.step((main_action, sub_action))
         state = next_state
+        t_reward += rew
 
+    final_runtime = env.get_cost()
+    print(f'Estimated runtime: {(final_runtime - start_runtime) / start_runtime}')
     runtimes = np.zeros(100, dtype=np.float32)
     for i in range(100):
         runtimes[i] = env.get_cost(real_measurement=True)
@@ -105,10 +109,11 @@ def main(graph_name_or_path, timestamp):
 
     # Get the optimised runtime using xflowrl (loading from checkpoint)
     print(f'Getting runtime on {graph_name} for xflowrl')
-    # runtimes = get_xflowrl_runtime(graph, graph_name, timestamp)
-    graph_name, graph = load_graph(f'./models/{graph_name}/{timestamp}/{graph_name}.onnx')
-    for i in range(100):
-        runtimes[i] = graph.run_time_memorysafe()
+    graph_name, graph = load_graph(graph_name_or_path)
+    runtimes = get_xflowrl_runtime(graph, graph_name, timestamp)
+    # graph_name, graph = load_graph(f'./models/{graph_name}/{timestamp}/{graph_name}.onnx')
+    # for i in range(100):
+    #    runtimes[i] = graph.run_time_memorysafe()
     results[graph_name].append(store_runtimes('xflowrl', runtimes))
     save_record(results, graph_name, timestamp)
 
