@@ -21,7 +21,9 @@ class MDRNN(MDRNNBase):
     def __init__(self, latents, actions, hiddens, gaussians):
         super().__init__(latents, actions, hiddens, gaussians)
         self.rnn = snt.LSTM(hiddens)
-        self.prev_state = 0
+
+    def initial_state(self):
+        return self.rnn.initial_state(1)
 
     def __call__(self, action, latent, prev_state):
         """ Single step
@@ -38,27 +40,30 @@ class MDRNN(MDRNNBase):
             - ds: (batch_size) tensor
             - next_state: (LSTMState) Next state of the LSTM Cell
         """
-        in_al = tf.concat([action, latent], axis=1)
-
-        out_rnn, next_state = self.rnn(in_al, prev_state)
+        in_all = tf.concat([action, latent], axis=1)
+        out_rnn, next_state = self.rnn(in_all, prev_state)
 
         out_full = self.gmm_linear(out_rnn)
 
         stride = self.gaussians * self.latents
 
         mus = out_full[:, :stride]
-        mus = mus.reshape(-1, self.gaussians, self.latents)
+        mus = tf.reshape(mus, [-1, self.gaussians, self.latents])
 
         sigmas = out_full[:, stride:2 * stride]
-        sigmas = sigmas.reshape(-1, self.gaussians, self.latents)
-        sigmas = tf.exp(sigmas)
+        sigmas = tf.exp(tf.reshape(sigmas, [-1, self.gaussians, self.latents]))
 
         pi = out_full[:, 2 * stride:2 * stride + self.gaussians]
-        pi = pi.reshape(-1, self.gaussians)
-        log_pi = tf.nn.log_softmax(pi, axis=-1)
+        pi = tf.nn.log_softmax(tf.reshape(pi, [-1, self.gaussians]), axis=-1)
 
-        r = out_full[:, -2]
+        rs = out_full[:, -2]
+        ds = out_full[:, -1]
 
-        d = out_full[:, -1]
+        return mus, sigmas, pi, rs, ds, next_state
 
-        return mus, sigmas, log_pi, r, d, next_state
+
+# if __name__ == '__main__':
+#     mdrnn = MDRNN(2, 3, 8, 5)
+#     mdrnn_init = mdrnn.initial_state()
+#     _latents = tf.convert_to_tensor(np.random.randn(1, 2), dtype=tf.float32)
+#     _mu, _sigma, _pi, _r, _d, state = mdrnn(tf.convert_to_tensor([[0.0] * 3]), _latents, mdrnn_init)
