@@ -4,6 +4,34 @@ from graph_nets.graphs import GraphsTuple
 from graph_nets import utils_tf
 
 
+class _BaseAgent(object):
+    def __init__(self):
+        self.ckpt_manager = None
+        self.ckpt = None
+
+    def act(self, *args):
+        pass
+
+    def update(self, *args):
+        pass
+
+    def save(self):
+        """Saves checkpoint to path."""
+        path = self.ckpt_manager.save()
+        print("Saving model to path = ", path)
+
+    def load(self):
+        """
+        Loads model from latest checkpoint. Note: due to eager execution, this can only be called once
+        all sonnet modules have been called once, e.g. by executing an act. See example.
+        """
+        self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
+        if self.ckpt_manager.latest_checkpoint:
+            print("Restoring model from path = {}".format(self.ckpt_manager.latest_checkpoint))
+        else:
+            print("Initializing from scratch.")
+
+
 def make_eager_graph_tuple(graph_tuple: GraphsTuple):
     """
     Ensures the contents of one or more graph tuples are tf tensors.

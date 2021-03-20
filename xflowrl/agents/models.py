@@ -108,7 +108,38 @@ class GraphNetwork(snt.Module):
         return updated_graph.globals
 
 
-class GraphModel(snt.Module):
+class _BaseModel(snt.Module):
+    def __init__(self, *args, **kwargs):
+        super(_BaseModel).__init__(*args, **kwargs)
+
+    @staticmethod
+    def masked_logits(logits, mask):
+        """
+        Masks out invalid actions.
+
+        Args:
+            logits: Action logits, shape [B, num_actions]
+            mask: Valid actions, shape [B, num_actions]
+
+        Returns:
+            masked_logits: Eager tensor of shape [B, num_actions] where all values which were 0 in the corresponding
+                mask are now -1e10. This means they will not be sampled when sampling actions from the policy.
+        """
+        mask = tf.convert_to_tensor(value=mask)
+        mask = tf.cast(mask, tf.bool)
+
+        mask_value = tf.cast(
+            tf.fill(dims=tf.shape(input=logits), value=-1e10), logits.dtype)
+        return tf.where(mask, logits, mask_value)
+
+    def act(self, *args):
+        pass
+
+    def update(self, *args):
+        pass
+
+
+class GraphModel(_BaseModel):
     """A graph neural network-based reinforcement learning model in TF eager mode.
 
     The model implements a one-step proximal policy optimization loss:
@@ -156,26 +187,6 @@ class GraphModel(snt.Module):
             snt.nets.MLP([policy_layer_size] * num_policy_layers, activate_final=True, activation=tf.nn.relu),
             snt.nets.MLP([1], activate_final=False)
         ], name="value_net")
-
-    @staticmethod
-    def masked_logits(logits, mask):
-        """
-        Masks out invalid actions.
-
-        Args:
-            logits: Action logits, shape [B, num_actions]
-            mask: Valid actions, shape [B, num_actions]
-
-        Returns:
-            masked_logits: Eager tensor of shape [B, num_actions] where all values which were 0 in the corresponding
-                mask are now -1e10. This means they will not be sampled when sampling actions from the policy.
-        """
-        mask = tf.convert_to_tensor(value=mask)
-        mask = tf.cast(mask, tf.bool)
-
-        mask_value = tf.cast(
-            tf.fill(dims=tf.shape(input=logits), value=-1e10), logits.dtype)
-        return tf.where(mask, logits, mask_value)
 
     def act(self, states, explore=True):
         """
@@ -325,3 +336,14 @@ class GraphModel(snt.Module):
 
         # Mean loss across batch, shape [B] -> ()
         return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=vf_loss, axis=0), info
+
+
+class GraphAEModel(_BaseModel):
+    def __init__(self, *args, **kwargs):
+        super(GraphAEModel).__init__(*args, **kwargs)
+
+    def act(self, states, explore=True):
+        pass
+
+    def update(self, states, actions, rewards, terminals):
+        pass

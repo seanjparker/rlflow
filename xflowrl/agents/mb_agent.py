@@ -4,11 +4,11 @@ import tensorflow as tf
 from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 
-class Agent(_BaseAgent):
+class MBAgent(_BaseAgent):
     """Provides a high level agent API on top of the graph model and documents parameters."""
 
     def __init__(self, num_actions, discount=0.99, gae_lambda=1.0, reducer=tf.math.unsorted_segment_sum,
-                 learning_rate=0.01, vf_learning_rate=0.01, clip_ratio=0.2, num_message_passing_steps=5,
+                 learning_rate=0.01, num_message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2, edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2):
         """
@@ -20,10 +20,7 @@ class Agent(_BaseAgent):
             reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
-            learning_rate (float): Policy learning rate.
-            vf_learning_rate (float): Value network learning rate.
-            clip_ratio (float): Limits the likelihood ratio between prior and new policy during the update. Does
-                not typically require tuning.
+            learning_rate (float): Learning rate.
             num_message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
             policy_layer_size (int):  Num policy layers. Also used for value network.
