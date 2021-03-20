@@ -1,5 +1,6 @@
 import sonnet as snt
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 class MDRNNBase(snt.Module):
@@ -61,6 +62,38 @@ class MDRNN(MDRNNBase):
 
         return mus, sigmas, pi, rs, ds, next_state
 
+
+def gmm_loss(batch, mus, sigmas, log_pi, reduce=True):
+    """ Computes the gmm loss.
+    Compute negative log probability of a batch for the GMM model.
+    Precisely, with bs1, bs2, ... the sizes of the batch
+    dimensions (several batch dimension are useful when you have both a batch
+    axis and a time step axis), gs the number of mixtures and fs the number of
+    features.
+    :args batch: (bs1, bs2, *, fs) tensor
+    :args mus: (bs1, bs2, *, gs, fs) tensor
+    :args sigmas: (bs1, bs2, *, gs, fs) tensor
+    :args logpi: (bs1, bs2, *, gs) tensor
+    :args reduce: if not reduce, the mean in the following formula is ommited
+    :returns:
+    loss(batch) = - mean_{i1=0..bs1, i2=0..bs2, ...} log(
+        sum_{k=1..gs} pi[i1, i2, ..., k] * N(
+            batch[i1, i2, ..., :] | mus[i1, i2, ..., k, :], sigmas[i1, i2, ..., k, :]))
+    NOTE: The loss is not reduced along the feature dimension (i.e. it should scale ~linearily
+    with fs).
+    """
+
+    batch = tf.expand_dims(batch, axis=-2)
+    normal_dist = tfp.distributions.Normal(mus, sigmas)
+    log_probs = log_pi + tf.reduce_sum(normal_dist.log_prob(batch), axis=-1)
+    max_log_probs = tf.reduce_max(log_probs, axis=-1, keepdims=True)
+    log_probs = log_probs - max_log_probs
+
+    e_probs = tf.exp(log_probs)
+    probs = tf.reduce_sum(e_probs, axis=-1)
+
+    log_prob = tf.expand_dims(max_log_probs, axis=-1) + tf.math.log(probs)
+    return -tf.reduce_mean(log_prob) if reduce else -log_prob
 
 # if __name__ == '__main__':
 #     mdrnn = MDRNN(2, 3, 8, 5)
