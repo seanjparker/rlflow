@@ -86,7 +86,6 @@ class GraphNetwork(snt.Module):
             graph_tuple: Instance of gn.graphs.GraphsTuple.
 
         Returns:
-            Logits tensor of dim [B x NUM_ACTIONS]
             Globals: Tensor of shape graph_tuple.globals.shape
         """
         # This performs one pass through the graph network and its aggregation functions.
@@ -94,8 +93,8 @@ class GraphNetwork(snt.Module):
         # conditioning, then nodes, then globals.
         updated_graph = self.graph_net(graph_tuple)
 
-        #for i in range(self.message_passing_steps-1):
-        #    updated_graph = self.graph_net(updated_graph)
+        for _ in range(self.message_passing_steps):
+            updated_graph = self.graph_net(updated_graph)
 
         # initial_state = zeros_graph(
         #     graph_tuple, graph_tuple.edges.shape[0], graph_tuple.nodes.shape[0], graph_tuple.globals.shape[0])
@@ -336,6 +335,60 @@ class GraphModel(_BaseModel):
 
         # Mean loss across batch, shape [B] -> ()
         return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=vf_loss, axis=0), info
+
+
+class GraphModelV2(_BaseModel):
+    """A graph neural network, model-based reinforcement learning model in tensorflow.
+
+        The model implements a World-Model:
+
+        https://arxiv.org/abs/1809.01999
+
+        Networks are implemented using Sonnet and GraphNets. See docs on 'trainable_variables'
+        property for comment on versions.
+        """
+
+    def __init__(self, main_net, mdrnn, controller, *args, **kwargs):
+        super(GraphModelV2).__init__(*args, **kwargs)
+        self.main_net = main_net
+        self.mdrnn = mdrnn
+        self.mdrnn_state = mdrnn.initial_state()
+        self.controller = controller
+
+    def act(self, states, explore=True):
+        """
+        Compute actions for states.
+
+        Args:
+            states: Input states.
+            explore: If true, sample action, if false, use argmax.
+        Returns:
+            Integer action(s) of dim [B]
+        """
+        if isinstance(states, list):
+            # Concat masks.
+            mask = tf.concat([state[self.mask_name] for state in states], axis=0)
+
+            # Convert graph tuple(s) to single tensor graph tuple.
+            # Assume batched states are list of graph tuples.
+            input_list = [state[self.state_name] for state in states]  # These are e.g. graph tuples
+            inputs = utils_tf.concat(input_list, axis=0)
+        else:
+            inputs = states[self.state_name]
+            mask = states[self.mask_name]
+
+        embedding = self.main_net.get_embeddings(inputs)
+        if self.reduce_embedding:
+            embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
+
+        latents, self.mdrnn_state = self.mdrnn(embedding, self.mdrnn_state)
+
+        actions = self.controller(embedding, latents)
+
+        return actions
+
+    def update(self, states, actions, rewards, terminals):
+        pass
 
 
 class GraphAEModel(_BaseModel):

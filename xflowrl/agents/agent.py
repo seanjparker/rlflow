@@ -61,7 +61,7 @@ class Agent(_BaseAgent):
 
         checkpoint_root = "./checkpoint/models"
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), module=self.model,
-                                        optim=self.pi_optimizer, vf_optim=self.vf_optimizer)
+                                        optim=self.pi_optimizer, vf_optim=self.vf_optimizer, main_net=self.main_net)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states, explore=True):
