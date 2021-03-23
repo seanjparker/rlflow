@@ -20,6 +20,32 @@ class _BaseAgent(object):
         path = self.ckpt_manager.save()
         print("Saving model to path = ", path)
 
+    @staticmethod
+    def state_action_masked(states, action_xfer):
+        if isinstance(states, list):
+            tuples = []
+            masks = []
+            for i, state in enumerate(states):
+                xfer_id = int(action_xfer[i])
+
+                xfer_graph_tuple = state["xfers"][xfer_id]
+                xfer_graph_tuple = make_eager_graph_tuple(xfer_graph_tuple)
+                location_mask = state["location_mask"][xfer_id]
+
+                tuples.append(xfer_graph_tuple)
+                masks.append(location_mask)
+        else:
+            xfer_id = int(action_xfer)
+
+            xfer_graph_tuple = states["xfers"][xfer_id]
+            xfer_graph_tuple = make_eager_graph_tuple(xfer_graph_tuple)
+            location_mask = states["location_mask"][xfer_id]
+
+            tuples = xfer_graph_tuple
+            masks = location_mask
+
+        return tuples, masks
+
     def load(self):
         """
         Loads model from latest checkpoint. Note: due to eager execution, this can only be called once

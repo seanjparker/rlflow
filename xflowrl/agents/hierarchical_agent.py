@@ -1,31 +1,18 @@
 import os
 
 from xflowrl.agents.models import GraphModel, GraphNetwork
-from xflowrl.agents.utils import make_eager_graph_tuple
+from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 import tensorflow as tf
 
 
-class HierarchicalAgent(object):
+class HierarchicalAgent(_BaseAgent):
     """Provides a high level agent API on top of the graph model and documents parameters."""
 
-    def __init__(self, num_actions, num_locations=100,
-                 discount=0.99,
-                 gae_lambda=1.0,
-                 reducer=tf.math.unsorted_segment_sum,
-                 learning_rate=0.01,
-                 vf_learning_rate=0.01,
-                 clip_ratio=0.2,
-                 policy_layer_size=32,
-                 num_policy_layers=2,
-                 edge_model_layer_size=8,
-                 num_edge_layers=2,
-                 node_model_layer_size=8,
-                 num_node_layers=2,
-                 global_layer_size=8,
-                 num_global_layers=2,
-                 message_passing_steps=1,
-                 network_name=None,
-                 checkpoint_timestamp=None):
+    def __init__(self, num_actions, num_locations=100, discount=0.99, gae_lambda=1.0,
+                 reducer=tf.math.unsorted_segment_sum, learning_rate=0.01, vf_learning_rate=0.01, clip_ratio=0.2,
+                 policy_layer_size=32, num_policy_layers=2, edge_model_layer_size=8, num_edge_layers=2,
+                 node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
+                 message_passing_steps=1, network_name=None, checkpoint_timestamp=None):
         """
 
         Args:
@@ -51,6 +38,7 @@ class HierarchicalAgent(object):
             network_name (str): Name of the network that is being optimized.
             checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
+        super().__init__()
         self.num_actions = num_actions
         self.num_locations = num_locations
 
@@ -133,33 +121,10 @@ class HierarchicalAgent(object):
                 state["graph"] = make_eager_graph_tuple(state["graph"])
         else:
             states["graph"] = make_eager_graph_tuple(states["graph"])
-
         main_action, main_logprobs, main_vf_values = self.model.act(states, explore=explore)
 
-        if isinstance(states, list):
-            tuples = []
-            masks = []
-            for i, state in enumerate(states):
-                xfer_id = int(main_action[i])
-
-                xfer_graph_tuple = state["xfers"][xfer_id]
-                xfer_graph_tuple = make_eager_graph_tuple(xfer_graph_tuple)
-                location_mask = state["location_mask"][xfer_id]
-
-                tuples.append(xfer_graph_tuple)
-                masks.append(location_mask)
-        else:
-            xfer_id = int(main_action)
-
-            xfer_graph_tuple = states["xfers"][xfer_id]
-            xfer_graph_tuple = make_eager_graph_tuple(xfer_graph_tuple)
-            location_mask = states["location_mask"][xfer_id]
-
-            tuples = xfer_graph_tuple
-            masks = location_mask
-
+        tuples, masks = self.state_action_masked(states, main_action)
         sub_state = dict(xfers=tuples, location_mask=masks)
-
         sub_action, sub_logprobs, sub_vf_values = self.sub_model.act(sub_state, explore=explore)
 
         return main_action, main_logprobs, main_vf_values, sub_action, sub_logprobs, sub_vf_values
