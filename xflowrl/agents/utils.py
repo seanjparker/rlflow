@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 import numpy as np
 from graph_nets.graphs import GraphsTuple
@@ -8,6 +9,8 @@ class _BaseAgent(object):
     def __init__(self):
         self.ckpt_manager = None
         self.ckpt = None
+        self.network_name = None
+        self.checkpoint_timestamp = None
 
     def act(self, *args):
         pass
@@ -19,6 +22,15 @@ class _BaseAgent(object):
         """Saves checkpoint to path."""
         path = self.ckpt_manager.save()
         print("Saving model to path = ", path)
+
+    def export(self, graph):
+        import taso
+        import onnx
+
+        onnx_model = taso.export_onnx(graph)
+        path = f'./models/{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        onnx.save(onnx_model, path)
 
     @staticmethod
     def state_xfer_masked(states, action_xfer):

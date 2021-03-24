@@ -18,12 +18,13 @@ class MDRNNBase(snt.Module):
 
 class MDRNN(MDRNNBase):
     """ MDRNN model """
-    def __init__(self, num_latents, num_actions, num_hiddens, num_gaussians):
-        super().__init__(num_latents, num_actions, num_hiddens, num_gaussians)
+    def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians):
+        super().__init__(num_latents, num_hiddens, num_gaussians)
         self.rnn = snt.LSTM(num_hiddens)
+        self.batch_size = batch_size
 
     def initial_state(self):
-        return self.rnn.initial_state(1)
+        return self.rnn.initial_state(self.batch_size)
 
     def __call__(self, latents, prev_state):
         """ Single step

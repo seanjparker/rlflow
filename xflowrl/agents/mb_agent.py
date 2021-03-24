@@ -7,16 +7,16 @@ from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 
 class MBAgent(_BaseAgent):
-    def __init__(self, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
+    def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
                  learning_rate=0.01, num_message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2, edge_model_layer_size=8, num_edge_layers=2,
-                 node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2):
+                 node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
+                 network_name=None, checkpoint_timestamp=None):
         """
 
         Args:
             num_actions (int): Number of discrete actions to choose from.
-            discount (float): Reward discount, typically between 0.95 and 1.0.
-            gae_lambda (float): Generalized advantage estimation lambda. See GAE paper.
+            num_locations (int): Number of discrete locations to choose from for each xfer
             reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
@@ -31,6 +31,8 @@ class MBAgent(_BaseAgent):
             num_node_layers (int): Num layers for node aggregation MLP.
             global_layer_size (int): Hidden layer neurons.
             num_global_layers (int): Num layers for global aggregation MLP.
+            network_name (str): Name of the network that is being optimized.
+            checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
         super().__init__()
 
@@ -47,7 +49,7 @@ class MBAgent(_BaseAgent):
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.mdrnn = MDRNN(self.main_net.globals.shape, num_actions, 256, 5)
+        self.mdrnn = MDRNN(batch_size, self.main_net.globals.shape, num_actions, 256, 5)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
         # it returns a single tensor of size [B, num_xfers] for the xfers
@@ -58,6 +60,9 @@ class MBAgent(_BaseAgent):
 
         self.model = GraphModelV2(self.main_net, self.mdrnn, self.xfer_controller)
         self.sub_model = GraphModelV2(self.main_net, self.mdrnn, self.loc_controller)
+
+        self.network_name = network_name
+        self.checkpoint_timestamp = checkpoint_timestamp
 
         checkpoint_root = "./checkpoint/models"
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), model=self.model, sub_model=self.sub_model)
@@ -95,5 +100,5 @@ class MBAgent(_BaseAgent):
 
         return xfer_action, loc_action
 
-    def update(self, states, actions, log_probs, vf_values, rewards, terminals):
+    def update(self, states, actions, rewards, terminals):
         return None

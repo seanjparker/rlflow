@@ -178,15 +178,6 @@ class HierarchicalAgent(_BaseAgent):
         # Unpack eager tensor.
         return pi_loss.numpy(), vf_loss.numpy(), sub_policy_loss.numpy(), sub_vf_loss.numpy(), info
 
-    def export(self, graph):
-        import taso
-        import onnx
-
-        onnx_model = taso.export_onnx(graph)
-        path = f'./models/{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        onnx.save(onnx_model, path)
-
     def save(self):
         """Saves checkpoint to path."""
         path = self.ckpt_manager.save()
