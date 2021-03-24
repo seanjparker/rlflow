@@ -123,7 +123,7 @@ class HierarchicalAgent(_BaseAgent):
             states["graph"] = make_eager_graph_tuple(states["graph"])
         main_action, main_logprobs, main_vf_values = self.model.act(states, explore=explore)
 
-        tuples, masks = self.state_action_masked(states, main_action)
+        tuples, masks = self.state_xfer_masked(states, main_action)
         sub_state = dict(xfers=tuples, location_mask=masks)
         sub_action, sub_logprobs, sub_vf_values = self.sub_model.act(sub_state, explore=explore)
 

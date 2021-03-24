@@ -21,7 +21,7 @@ class _BaseAgent(object):
         print("Saving model to path = ", path)
 
     @staticmethod
-    def state_action_masked(states, action_xfer):
+    def state_xfer_masked(states, action_xfer):
         if isinstance(states, list):
             tuples = []
             masks = []
