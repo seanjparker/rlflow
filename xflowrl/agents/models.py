@@ -381,11 +381,22 @@ class GraphModelV2(_BaseModel):
         if self.reduce_embedding:
             embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
 
-        latents, self.mdrnn_state = self.mdrnn(embedding, self.mdrnn_state)
+        mdrnn_out, self.mdrnn_state = self.mdrnn(embedding, self.mdrnn_state)
 
-        actions = self.controller(embedding, latents)
+        # Mask out invalid actions.
+        mask = tf.reshape(mask, mdrnn_out.shape)
+        logits = self.masked_logits(mdrnn_out, mask)
 
-        return actions
+        logits = self.controller(embedding, logits)
+
+        if explore:
+            action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+        else:
+            action = tf.convert_to_tensor(value=np.argmax(logits, -1))
+        # log_probs = tf.nn.log_softmax(logits)
+        # action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
+
+        return action
 
     def update(self, states, actions, rewards, terminals):
         pass
