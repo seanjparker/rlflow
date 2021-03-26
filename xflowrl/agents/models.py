@@ -3,6 +3,8 @@ import numpy as np
 import graph_nets as gn
 import sonnet as snt
 from graph_nets import utils_tf
+
+from xflowrl.agents.network.mdrnn import gmm_loss
 from xflowrl.agents.utils import gae_helper
 
 
@@ -398,8 +400,20 @@ class GraphModelV2(_BaseModel):
 
         return action
 
-    def update(self, states, actions, rewards, terminals):
-        pass
+    def update(self, states, actions, rewards, next_states, terminals, include_reward=False):
+        latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
+        next_latent_state = [self.main_net.get_embeddings(x["graph"]) for x in next_states]
+
+        mus, sigmas, log_pi, rs, ds = self.mdrnn(actions, latent_state)
+        gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
+        bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        bce = bce_f(terminals, ds)
+
+        mse = tf.keras.losses.mse(rewards, rs) if include_reward else 0
+        scale = self.latent_size + 2 if include_reward else self.latent_size + 1
+        mdrnn_loss = (gmm + bce + mse) / scale
+
+        return mdrnn_loss
 
 
 class GraphAEModel(_BaseModel):

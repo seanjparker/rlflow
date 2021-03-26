@@ -8,7 +8,7 @@ from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 class MBAgent(_BaseAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
-                 learning_rate=0.01, num_message_passing_steps=5,
+                 controller_learning_rate=0.001, gmm_learning_rate=0.01, num_message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2, edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
                  network_name=None, checkpoint_timestamp=None):
@@ -20,7 +20,8 @@ class MBAgent(_BaseAgent):
             reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
-            learning_rate (float): Learning rate.
+            controller_learning_rate (float): Learning rate for the controllers
+            gmm_learning_rate (float): Learning rate for MDRNN
             num_message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
             policy_layer_size (int):  Num policy layers. Also used for value network.
@@ -49,7 +50,8 @@ class MBAgent(_BaseAgent):
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.mdrnn = MDRNN(batch_size, self.main_net.globals.shape, num_actions, 256, 5)
+        self.latent_size = self.main_net.globals.shape
+        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 5)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
         # it returns a single tensor of size [B, num_xfers] for the xfers
@@ -63,6 +65,9 @@ class MBAgent(_BaseAgent):
 
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp
+
+        self.gmm_optimizer = tf.keras.optimizers.RMSprop(learning_rate=gmm_learning_rate)
+        self.con_optimizer = tf.keras.optimizers.Adam(learning_rate=controller_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), model=self.model, sub_model=self.sub_model)
@@ -100,5 +105,22 @@ class MBAgent(_BaseAgent):
 
         return xfer_action, loc_action
 
-    def update(self, states, actions, rewards, terminals):
-        return None
+    def update(self, states, next_states, actions, rewards, terminals):
+        for state in states:
+            state["graph"] = make_eager_graph_tuple(state["graph"])
+        for state in next_states:
+            state["graph"] = make_eager_graph_tuple(state["graph"])
+        actions = tf.convert_to_tensor(value=actions)
+
+        # Train main net
+
+        # Train MDRNN
+        with tf.GradientTape() as tape:
+            mdrnn_loss = self.model.update(states, actions, rewards, next_states, terminals)
+        mdrnn_grads = tape.gradient(mdrnn_loss, self.model.mdrnn.trainable_variables)
+        self.gmm_optimizer.apply_gradients(zip(mdrnn_grads, self.model.mdrnn.trainable_variables))
+
+        # Train xfer Controller
+
+        # Train loc controller
+        return mdrnn_loss.numpy()

@@ -78,6 +78,7 @@ def main(path_or_name, cont=None):
 
     # Storing samples.
     states = []
+    next_states = []
     xfer_actions = []
     loc_actions = []
 
@@ -126,6 +127,7 @@ def main(path_or_name, cont=None):
 
             # Append to buffer.
             states.append(state)
+            next_states.append(next_state)
 
             # Main action
             xfer_actions.append(xfer_action)
@@ -175,6 +177,7 @@ def main(path_or_name, cont=None):
                         states=states,
                         actions=xfer_actions,
                         rewards=rewards,
+                        next_states=next_states,
                         terminals=terminals
                     )
                     # Loss should be decreasing.
@@ -183,6 +186,7 @@ def main(path_or_name, cont=None):
 
                     # Reset buffers.
                     states = []
+                    next_states = []
                     xfer_actions = []
                     loc_actions = []
                     rewards = []
