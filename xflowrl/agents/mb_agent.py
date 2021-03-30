@@ -1,3 +1,4 @@
+import sonnet as snt
 from xflowrl.agents.models import GraphModel, GraphNetwork, GraphModelV2
 import tensorflow as tf
 
@@ -60,13 +61,15 @@ class MBAgent(_BaseAgent):
         # The location controller chooses the location at which to apply the chosen xfer of size [B, num_locations]
         self.loc_controller = Controller(num_locations)
 
-        self.model = GraphModelV2(self.main_net, self.mdrnn, self.xfer_controller)
-        self.sub_model = GraphModelV2(self.main_net, self.mdrnn, self.loc_controller)
+        self.trunk = snt.Sequential([self.main_net, self.mdrnn])
+
+        self.model = GraphModelV2(self.trunk, self.xfer_controller)
+        self.sub_model = GraphModelV2(self.trunk, self.loc_controller)
 
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp
 
-        self.gmm_optimizer = tf.keras.optimizers.RMSprop(learning_rate=gmm_learning_rate)
+        self.trunk_optimizer = tf.keras.optimizers.RMSprop(learning_rate=gmm_learning_rate)
         self.con_optimizer = tf.keras.optimizers.Adam(learning_rate=controller_learning_rate)
 
         checkpoint_root = "./checkpoint/models"
@@ -112,15 +115,16 @@ class MBAgent(_BaseAgent):
             state["graph"] = make_eager_graph_tuple(state["graph"])
         actions = tf.convert_to_tensor(value=actions)
 
-        # Train main net
-
-        # Train MDRNN
+        # Train network trunk
         with tf.GradientTape() as tape:
-            mdrnn_loss = self.model.update(states, actions, rewards, next_states, terminals)
-        mdrnn_grads = tape.gradient(mdrnn_loss, self.model.mdrnn.trainable_variables)
-        self.gmm_optimizer.apply_gradients(zip(mdrnn_grads, self.model.mdrnn.trainable_variables))
+            trunk_loss = self.model.update(states, actions, rewards, next_states, terminals)
+        grads = tape.gradient(trunk_loss, self.trunk.trainable_variables)
+        self.trunk_optimizer.apply_gradients(zip(grads, self.trunk.trainable_variables))
 
-        # Train xfer Controller
+        # Train head controller
+        with tf.GradientTape() as controller_tape:
+            xfer_loss = controller_loss()
+        grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
+        self.con_optimizer.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
 
-        # Train loc controller
-        return mdrnn_loss.numpy()
+        return trunk_loss.numpy(), xfer_loss.numpy()

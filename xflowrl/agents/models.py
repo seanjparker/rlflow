@@ -350,12 +350,12 @@ class GraphModelV2(_BaseModel):
         property for comment on versions.
         """
 
-    def __init__(self, main_net, mdrnn, controller, *args, **kwargs):
+    def __init__(self, trunk, controller_head, *args, **kwargs):
         super(GraphModelV2).__init__(*args, **kwargs)
-        self.main_net = main_net
-        self.mdrnn = mdrnn
-        self.mdrnn_state = mdrnn.initial_state()
-        self.controller = controller
+        self.main_net = trunk.layers[0]
+        self.mdrnn = trunk.layers[1]
+        self.mdrnn_state = self.mdrnn.initial_state()
+        self.controller = controller_head
 
     def act(self, states, explore=True):
         """

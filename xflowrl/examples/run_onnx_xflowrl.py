@@ -141,7 +141,7 @@ def main(path_or_name, cont=None):
         timestep = 0
         while not terminal:
             main_action, main_log_prob, main_vf_value, \
-            sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
+                sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((main_action, sub_action))
@@ -170,16 +170,6 @@ def main(path_or_name, cont=None):
                 xfers_applied[str(main_action[0])] = 0
             xfers_applied[str(main_action[0])] += 1
 
-            # logger_inference.info(
-            #    "Episode {}. Iteration {}. Graph: {}. XFER: {}. Location: {}. Reward: {:.6f}. Terminal: {}".format(
-            #        current_episode,
-            #        timestep,
-            #        graph_name,
-            #        main_action,
-            #        sub_action,
-            #        reward,
-            #        terminal
-            #    ))
             timestep += 1
 
             # If terminal, reset.
