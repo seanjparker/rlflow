@@ -58,10 +58,10 @@ class MDRNN(MDRNNBase):
         rewards = out_full[:, -2]
         dones = out_full[:, -1]
 
-        return mus, sigmas, pi, rewards, dones, next_state
+        return (mus, sigmas, pi, rewards, dones), next_state
 
 
-def gmm_loss(batch, mus, sigmas, log_pi, reduce=True):
+def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True):
     """ Computes the gmm loss.
     Compute negative log probability of a batch for the GMM model.
     Precisely, with bs1, bs2, ... the sizes of the batch
@@ -81,9 +81,9 @@ def gmm_loss(batch, mus, sigmas, log_pi, reduce=True):
     with fs).
     """
 
-    batch = tf.expand_dims(batch, axis=-2)
+    next_latent_obs = tf.expand_dims(next_latent_obs, axis=-2)
     normal_dist = tfp.distributions.Normal(mus, sigmas)
-    log_probs = log_pi + tf.reduce_sum(normal_dist.log_prob(batch), axis=-1)
+    log_probs = log_pi + tf.reduce_sum(normal_dist.log_prob(next_latent_obs), axis=-1)
     max_log_probs = tf.reduce_max(log_probs, axis=-1, keepdims=True)
     log_probs = log_probs - max_log_probs
 
