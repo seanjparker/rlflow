@@ -1,7 +1,8 @@
 import sonnet as snt
-from xflowrl.agents.models import GraphModel, GraphNetwork, GraphModelV2
 import tensorflow as tf
+import graph_nets as gn
 
+from xflowrl.agents.models import GraphNetwork, GraphModelV2
 from xflowrl.agents.network.controller import Controller
 from xflowrl.agents.network.mdrnn import MDRNN
 from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
@@ -9,7 +10,7 @@ from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 class MBAgent(_BaseAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
-                 controller_learning_rate=0.001, gmm_learning_rate=0.01, num_message_passing_steps=5,
+                 controller_learning_rate=0.001, gmm_learning_rate=0.01, message_passing_steps=5,
                  policy_layer_size=32, num_policy_layers=2, edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
                  network_name=None, checkpoint_timestamp=None):
@@ -23,7 +24,7 @@ class MBAgent(_BaseAgent):
                 for graph neural network.
             controller_learning_rate (float): Learning rate for the controllers
             gmm_learning_rate (float): Learning rate for MDRNN
-            num_message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
+            message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
             policy_layer_size (int):  Num policy layers. Also used for value network.
             num_policy_layers (int): Num layers in policy network.
@@ -47,11 +48,12 @@ class MBAgent(_BaseAgent):
             node_model_layer_size=node_model_layer_size,
             num_node_layers=num_node_layers,
             global_layer_size=global_layer_size,
-            num_global_layers=num_global_layers
+            num_global_layers=num_global_layers,
+            message_passing_steps=message_passing_steps
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.latent_size = self.main_net.globals.shape
+        self.latent_size = num_locations * global_layer_size
         self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 5)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
@@ -63,8 +65,8 @@ class MBAgent(_BaseAgent):
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 
-        self.model = GraphModelV2(self.trunk, self.xfer_controller)
-        self.sub_model = GraphModelV2(self.trunk, self.loc_controller)
+        self.model = GraphModelV2(self.trunk, self.xfer_controller, batch_size, num_actions)
+        self.sub_model = GraphModelV2(self.trunk, self.loc_controller, batch_size, num_actions)
 
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp

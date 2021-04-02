@@ -2,6 +2,7 @@ from functools import partial
 
 import numpy as np
 import graph_nets as gn
+from typing import List
 
 from xflowrl.core import PyRLOptimizer
 
@@ -140,6 +141,12 @@ class _BaseEnvironment(object):
 
     def step(self, actions):
         pass
+
+    def get_available_xfers(self) -> List[int]:
+        return self.rl_opt.get_num_xfers()
+
+    def get_available_locations(self) -> List[int]:
+        return self.rl_opt.get_available_locations()
 
 
 class HierarchicalEnvironment(_BaseEnvironment):

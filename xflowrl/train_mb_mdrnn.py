@@ -5,8 +5,10 @@ import sys
 from datetime import datetime
 import os
 import tensorflow as tf
+import numpy as np
 
 from xflowrl.agents.mb_agent import MBAgent
+from xflowrl.agents.utils import make_eager_graph_tuple
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
 from xflowrl.graphs.util import load_graph
 from xflowrl.agents.network.mdrnn import gmm_loss
@@ -59,21 +61,20 @@ def main(path_or_name, cont=None):
 
     num_actions = env.get_num_actions()
 
+    num_episodes = 2000  # Todo: change
+    episodes_per_batch = 10  # Todo: change
+
     hparams = dict(
+        batch_size=episodes_per_batch,
         num_actions=num_actions,
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        learning_rate=0.0025,
+        gmm_learning_rate=0.0025,
         message_passing_steps=5,
         network_name=graph_name,
         checkpoint_timestamp=timestamp
     )
-
-    num_episodes = 2000  # Todo: change
-
-    # How often will we update?
-    episodes_per_batch = 10  # Todo: change
 
     agent = MBAgent(**hparams)
     agent.load()
@@ -116,7 +117,13 @@ def main(path_or_name, cont=None):
 
         timestep = 0
         while not terminal:
-            xfer_action, loc_action = agent.act(states=state, explore=True)
+            # Random action agent
+            xfer_possible = np.array([env.get_available_xfers()])
+            loc_possible = np.array(env.get_available_locations())
+            loc_possible = loc_possible[loc_possible != 0]
+
+            xfer_action = np.random.choice(xfer_possible)
+            loc_action = np.random.choice(loc_possible)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
@@ -134,11 +141,11 @@ def main(path_or_name, cont=None):
             if terminal:
                 timestep = 0
 
-                # print(f'Final runtime:\t{final_runtime:.4f}')
-                # print(f'Difference:\t'
-                #      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
-                # print(xfers_applied)
-                # print('-' * 40)
+                final_runtime = env.get_cost()
+                print(f'Final runtime:\t{final_runtime:.4f}')
+                print(f'Difference:\t'
+                     f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
+                print('-' * 40)
 
                 # Do an update after collecting specified number of batches.
                 # This is a hyper-parameter that will require a lot of experimentation.

@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 import numpy as np
 import graph_nets as gn
 import sonnet as snt
@@ -95,8 +96,8 @@ class GraphNetwork(snt.Module):
         # conditioning, then nodes, then globals.
         updated_graph = self.graph_net(graph_tuple)
 
-        for _ in range(self.message_passing_steps):
-            updated_graph = self.graph_net(updated_graph)
+        # for _ in range(self.message_passing_steps - 1):
+        #    updated_graph = self.graph_net(updated_graph)
 
         # initial_state = zeros_graph(
         #     graph_tuple, graph_tuple.edges.shape[0], graph_tuple.nodes.shape[0], graph_tuple.globals.shape[0])
@@ -110,8 +111,8 @@ class GraphNetwork(snt.Module):
 
 
 class _BaseModel(snt.Module):
-    def __init__(self, *args, **kwargs):
-        super(_BaseModel).__init__(*args, **kwargs)
+    def __init__(self):
+        super(_BaseModel, self).__init__()
 
     @staticmethod
     def masked_logits(logits, mask):
@@ -153,9 +154,8 @@ class GraphModel(_BaseModel):
 
     def __init__(self, num_actions, discount=0.99, gae_lambda=1.0,
                  clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2, num_message_passing_steps=5,
-                 main_net=None, state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False,
-                 *args, **kwargs):
-        super(GraphModel, self).__init__(*args, **kwargs)
+                 main_net=None, state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False):
+        super(GraphModel, self).__init__()
 
         if add_noop:
             num_actions += 1
@@ -350,12 +350,20 @@ class GraphModelV2(_BaseModel):
         property for comment on versions.
         """
 
-    def __init__(self, trunk, controller_head, *args, **kwargs):
-        super(GraphModelV2).__init__(*args, **kwargs)
-        self.main_net = trunk.layers[0]
-        self.mdrnn = trunk.layers[1]
+    def __init__(self, trunk, controller_head, batch_size, num_actions, state_name='graph', mask_name='mask', reduce_embedding=False):
+        super(GraphModelV2, self).__init__()
+        self.main_net = trunk._layers[0]
+        self.mdrnn = trunk._layers[1]
+
+        self.state_name = state_name
+        self.mask_name = mask_name
+        self.reduce_embedding = reduce_embedding
+
         self.mdrnn_state = self.mdrnn.initial_state()
         self.controller = controller_head
+
+        self.num_actions = num_actions
+        self.batch_size = batch_size
 
     def act(self, states, explore=True):
         """
@@ -386,25 +394,32 @@ class GraphModelV2(_BaseModel):
         mdrnn_out, self.mdrnn_state = self.mdrnn(embedding, self.mdrnn_state)
 
         # Mask out invalid actions.
-        mask = tf.reshape(mask, mdrnn_out.shape)
-        logits = self.masked_logits(mdrnn_out, mask)
+        pi = tf.squeeze(mdrnn_out[2])
+        print(pi.shape)
+        mixt = tfp.distributions.Categorical(tf.exp(pi)).sample().numpy()
+        print(mixt)
+        print(mdrnn_out[0].shape)
+        latent_state = mdrnn_out[0][:, mixt, :]
 
-        logits = self.controller(embedding, logits)
+        mask = tf.reshape(mask, latent_state.shape)
+        latent_state = self.masked_logits(latent_state, mask)
 
-        if explore:
-            action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
-        else:
-            action = tf.convert_to_tensor(value=np.argmax(logits, -1))
+        logits = self.controller(embedding, latent_state)
+
+        # if explore:
+        #    action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+        # else:
+        #    action = tf.convert_to_tensor(value=np.argmax(logits, -1))
         # log_probs = tf.nn.log_softmax(logits)
         # action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
 
-        return action
+        action = np.random.randint(low=0, high=self.num_actions, size=(self.batch_size,))
 
     def update(self, states, actions, rewards, next_states, terminals, include_reward=False):
         latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
         next_latent_state = [self.main_net.get_embeddings(x["graph"]) for x in next_states]
 
-        mus, sigmas, log_pi, rs, ds = self.mdrnn(actions, latent_state)
+        (mus, sigmas, log_pi, rs, ds), _ = self.mdrnn(actions, latent_state)
         gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
         bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
         bce = bce_f(terminals, ds)
@@ -418,7 +433,7 @@ class GraphModelV2(_BaseModel):
 
 class GraphAEModel(_BaseModel):
     def __init__(self, *args, **kwargs):
-        super(GraphAEModel).__init__(*args, **kwargs)
+        super(GraphAEModel, self).__init__()
 
     def act(self, states, explore=True):
         pass
