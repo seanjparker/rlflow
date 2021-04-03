@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 import tensorflow as tf
 import numpy as np
+import graph_nets as gn
 
 from xflowrl.agents.mb_agent import MBAgent
 from xflowrl.agents.utils import make_eager_graph_tuple
@@ -14,12 +15,29 @@ from xflowrl.graphs.util import load_graph
 from xflowrl.agents.network.mdrnn import gmm_loss
 
 
-@tf.function
 def update_step(agent, states, next_states, actions, terminals, rewards):
+    if isinstance(states, list):
+        # masks = tf.concat([state["mask"] for state in states], axis=0)
+        input_list = [state["graph"] for state in states]
+        inputs = gn.utils_tf.concat(input_list, axis=0)
+    else:
+        inputs = states["graph"]
+        # masks = states["mask"]
+
+    if isinstance(next_states, list):
+        # next_state_masks = tf.concat([state["mask"] for state in next_states], axis=0)
+        next_state_input_list = [state["graph"] for state in next_states]
+        next_state_inputs = gn.utils_tf.concat(next_state_input_list, axis=0)
+    else:
+        next_state_inputs = next_states["graph"]
+        # next_state_masks = next_states["mask"]
+
+    latent_state = agent.main_net.get_embeddings(inputs)
+    next_latent_state = agent.main_net.get_embeddings(next_state_inputs)
+    mus, sigmas, log_pi, rs, ds, ns = agent.mdrnn(latent_state, agent.model.mdrnn_state)
+    agent.model.mdrnn_state = ns
+
     with tf.GradientTape() as tape:
-        latent_state = [agent.main_net.get_embeddings(x["graph"]) for x in states]
-        next_latent_state = [agent.main_net.get_embeddings(x["graph"]) for x in next_states]
-        mus, sigmas, log_pi, rs, ds = agent.mdrnn(actions, latent_state)
         gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
         bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
         bce = bce_f(terminals, ds)
