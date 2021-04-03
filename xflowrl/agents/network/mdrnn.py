@@ -26,8 +26,9 @@ class MDRNN(MDRNNBase):
     def initial_state(self):
         return self.rnn.initial_state(self.batch_size)
 
-    def __call__(self, latents, prev_state):
-        """ Single step
+    def __call__(self, actions, latents, prev_state):
+        """ Multiple steps
+        :args actions: (batch_size, actions_size) tensor
         :args latents: (batch_size, latents_size) tensor
         :args prev_state: (batch_size, LSTMState) tensor
         :returns: mu_nlat, sig_nlat, pi_nlat, r, d, next_hidden, parameters of
@@ -40,23 +41,26 @@ class MDRNN(MDRNNBase):
             - dones: (batch_size) tensor
             - next_state: (LSTMState) Next state of the LSTM Cell
         """
-        out_rnn, next_state = self.rnn(latents, prev_state)
+        seq_len, bs = actions.shape[0], actions.shape[1]
+
+        in_all = tf.concat([actions, latents], axis=-1)
+        out_rnn, next_state = self.rnn(in_all, prev_state)
 
         out_full = self.gmm_linear(out_rnn)
 
         stride = self.num_gaussians * self.num_latents
 
-        mus = out_full[:, :stride]
-        mus = tf.reshape(mus, [-1, self.num_gaussians, self.num_latents])
+        mus = out_full[:, :, :stride]
+        mus = tf.reshape(mus, [seq_len, bs, self.num_gaussians, self.num_latents])
 
-        sigmas = out_full[:, stride:2 * stride]
-        sigmas = tf.exp(tf.reshape(sigmas, [-1, self.num_gaussians, self.num_latents]))
+        sigmas = out_full[:, :, stride:2 * stride]
+        sigmas = tf.exp(tf.reshape(sigmas, [seq_len, bs, self.num_gaussians, self.num_latents]))
 
-        pi = out_full[:, 2 * stride:2 * stride + self.num_gaussians]
-        pi = tf.nn.log_softmax(tf.reshape(pi, [-1, self.num_gaussians]), axis=-1)
+        pi = out_full[:, :,  2 * stride:2 * stride + self.num_gaussians]
+        pi = tf.nn.log_softmax(tf.reshape(pi, [seq_len, bs, self.num_gaussians]), axis=-1)
 
-        rewards = out_full[:, -2]
-        dones = out_full[:, -1]
+        rewards = out_full[:, :, -2]
+        dones = out_full[:, :, -1]
 
         return (mus, sigmas, pi, rewards, dones), next_state
 

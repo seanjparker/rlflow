@@ -34,7 +34,7 @@ def update_step(agent, states, next_states, actions, terminals, rewards):
 
     latent_state = agent.main_net.get_embeddings(inputs)
     next_latent_state = agent.main_net.get_embeddings(next_state_inputs)
-    mus, sigmas, log_pi, rs, ds, ns = agent.mdrnn(latent_state, agent.model.mdrnn_state)
+    mus, sigmas, log_pi, rs, ds, ns = agent.mdrnn(actions, latent_state, agent.model.mdrnn_state)
     agent.model.mdrnn_state = ns
 
     with tf.GradientTape() as tape:
