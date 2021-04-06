@@ -1,6 +1,9 @@
+from typing import Union
+
 import sonnet as snt
 import tensorflow as tf
 import graph_nets as gn
+import numpy as np
 
 from xflowrl.agents.models import GraphNetwork, GraphModelV2
 from xflowrl.agents.network.controller import Controller
@@ -78,7 +81,7 @@ class MBAgent(_BaseAgent):
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), model=self.model, sub_model=self.sub_model)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
-    def act(self, states, explore=True):
+    def act(self, states: Union[dict, list], explore=True):
         """
         Act on one or a list of states.
 
@@ -101,7 +104,19 @@ class MBAgent(_BaseAgent):
         else:
             states["graph"] = make_eager_graph_tuple(states["graph"])
 
-        xfer_action = self.model.act(states, explore=explore)
+        def logical_mask():
+            mask = states["mask"]
+            values = tf.cast(tf.convert_to_tensor(value=mask), tf.bool)
+            return tf.where(values)
+
+        def random_choice(x, size, axis=0):
+            dim_x = tf.cast(tf.shape(x)[axis], tf.int64)
+            indices = tf.range(0, dim_x, dtype=tf.int64)
+            sample_index = tf.random.shuffle(indices)[:size]
+            sample = tf.gather(x, sample_index, axis=axis)
+            return sample
+
+        xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1), 1)
 
         tuples, masks = self.state_xfer_masked(states, xfer_action)
         masked_state = dict(xfers=tuples, location_mask=masks)

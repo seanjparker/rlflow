@@ -142,7 +142,7 @@ def main(path_or_name, cont=None):
         while not terminal:
             main_action, main_log_prob, main_vf_value, \
                 sub_action, sub_log_prob, sub_vf_value = agent.act(states=state, explore=True)
-
+            print(main_action, sub_action)
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((main_action, sub_action))
 

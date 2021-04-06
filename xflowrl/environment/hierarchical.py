@@ -155,6 +155,7 @@ class HierarchicalEnvironment(_BaseEnvironment):
 
     def step(self, actions):
         xfer_id, location_id = actions
+        print(xfer_id, location_id)
 
         terminate = False
         if xfer_id >= self.rl_opt.get_num_xfers():

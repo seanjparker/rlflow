@@ -391,12 +391,12 @@ class GraphModelV2(_BaseModel):
         if self.reduce_embedding:
             embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
 
-        mdrnn_out, self.mdrnn_state = self.mdrnn(embedding, self.mdrnn_state)
+        mdrnn_out, self.mdrnn_state = self.mdrnn(actions, embedding, self.mdrnn_state)
 
         # Mask out invalid actions.
         pi = tf.squeeze(mdrnn_out[2])
         print(pi.shape)
-        mixt = tfp.distributions.Categorical(tf.exp(pi)).sample().numpy()
+        mixt = tf.squeeze(tf.random.categorical(tf.exp(pi), 1))
         print(mixt)
         print(mdrnn_out[0].shape)
         latent_state = mdrnn_out[0][:, mixt, :]
@@ -405,15 +405,15 @@ class GraphModelV2(_BaseModel):
         latent_state = self.masked_logits(latent_state, mask)
 
         logits = self.controller(embedding, latent_state)
-
+        action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
         # if explore:
-        #    action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+        #
         # else:
         #    action = tf.convert_to_tensor(value=np.argmax(logits, -1))
         # log_probs = tf.nn.log_softmax(logits)
         # action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
+        return action.numpy()
 
-        action = np.random.randint(low=0, high=self.num_actions, size=(self.batch_size,))
 
     def update(self, states, actions, rewards, next_states, terminals, include_reward=False):
         latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
@@ -440,3 +440,91 @@ class GraphAEModel(_BaseModel):
 
     def update(self, states, actions, rewards, terminals):
         pass
+
+
+class RandomGraphModel(_BaseModel):
+    """A graph neural network-based reinforcement learning model in TF eager mode.
+
+    The model implements a one-step proximal policy optimization loss:
+
+    https://arxiv.org/abs/1707.06347
+
+    Networks are implemented using Sonnet and GraphNets. See docs on 'trainable_variables'
+    property for comment on versions.
+    """
+
+    def __init__(self, num_actions, discount=0.99, gae_lambda=1.0,
+                 clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2, num_message_passing_steps=5,
+                 main_net=None, state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False):
+        super(RandomGraphModel, self).__init__()
+
+        if add_noop:
+            num_actions += 1
+
+        self.num_actions = num_actions
+        self.clip_ratio = clip_ratio
+        self.discount = discount
+        self.gae_lambda = gae_lambda
+
+        # 1. Create graph net module.
+        self.main_net = main_net
+        self.state_name = state_name
+        self.mask_name = mask_name
+
+        self.reduce_embedding = reduce_embedding
+
+    def act(self, states, explore=True):
+        """
+        Compute actions for states.
+
+        Args:
+            states: Input states.
+            explore: If true, sample action, if false, use argmax.
+        Returns:
+            Integer action(s) of dim [B]
+        """
+        if isinstance(states, list):
+            # Concat masks.
+            mask = tf.concat([state[self.mask_name] for state in states], axis=0)
+
+            # Convert graph tuple(s) to single tensor graph tuple.
+            # Assume batched states are list of graph tuples.
+            input_list = [state[self.state_name] for state in states]  # These are e.g. graph tuples
+            inputs = utils_tf.concat(input_list, axis=0)
+        else:
+            inputs = states[self.state_name]
+            mask = states[self.mask_name]
+
+        # Separately output globals.
+        embedding = self.main_net.get_embeddings(inputs)
+
+        if self.reduce_embedding:
+            # In the case of the sub action, we have e.g. 80 possible locations (out of 100). For each of these
+            # 80 graphs, we get an embedding of size global_dim. Reduce these information over 80 graphs into one
+            # information on which we base our decision on.
+            # Todo: Instead pad with zeros and use full embedding matrix?
+            embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
+
+        logits = self.policy_net(embedding)
+        mask = tf.reshape(mask, logits.shape)
+        logits = self.masked_logits(logits, mask)
+
+        action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+
+        # Detach from eager tensor to numpy.
+        return action.numpy()
+
+    def update(self, states, actions, prev_log_probs, prev_values, rewards, terminals):
+        latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
+        next_latent_state = [self.main_net.get_embeddings(x["graph"]) for x in next_states]
+
+        (mus, sigmas, log_pi, rs, ds), _ = self.mdrnn(actions, latent_state)
+        gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
+        bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        bce = bce_f(terminals, ds)
+
+        mse = tf.keras.losses.mse(rewards, rs) if include_reward else 0
+        scale = self.latent_size + 2 if include_reward else self.latent_size + 1
+        mdrnn_loss = (gmm + bce + mse) / scale
+
+        return mdrnn_loss

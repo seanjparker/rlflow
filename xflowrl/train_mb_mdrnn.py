@@ -136,15 +136,16 @@ def main(path_or_name, cont=None):
         timestep = 0
         while not terminal:
             # Random action agent
-            xfer_possible = np.array([env.get_available_xfers()])
-            loc_possible = np.array(env.get_available_locations())
-            loc_possible = loc_possible[loc_possible != 0]
+            # xfer_possible = np.array([env.get_available_xfers()])
+            # loc_possible = np.array(env.get_available_locations())
+            # loc_possible = loc_possible[loc_possible != 0]
 
-            xfer_action = np.random.choice(xfer_possible)
-            loc_action = np.random.choice(loc_possible)
+            # xfer_action = np.random.choice(xfer_possible)
+            # loc_action = np.random.choice(loc_possible)
+            action = agent.act(state, explore=True)
 
             # Action delivered in shape (1,), need ()
-            next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
+            next_state, reward, terminal, _ = env.step((action, action))
 
             # Append to buffer.
             states.append(state)
