@@ -104,8 +104,8 @@ class MBAgent(_BaseAgent):
         else:
             states["graph"] = make_eager_graph_tuple(states["graph"])
 
-        def logical_mask():
-            mask = states["mask"]
+        def logical_mask(mask_name="mask", mask=None):
+            mask = states[mask_name] if mask is None else mask
             values = tf.cast(tf.convert_to_tensor(value=mask), tf.bool)
             return tf.where(values)
 
@@ -118,12 +118,10 @@ class MBAgent(_BaseAgent):
 
         xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1), 1)
 
-        tuples, masks = self.state_xfer_masked(states, xfer_action)
-        masked_state = dict(xfers=tuples, location_mask=masks)
+        _, location_mask = self.state_xfer_masked(states, xfer_action)
+        location_action = random_choice(tf.squeeze(logical_mask(mask=location_mask), axis=1), 1)
 
-        loc_action = self.sub_model.act(masked_state, explore=explore)
-
-        return xfer_action, loc_action
+        return xfer_action.numpy(), location_action.numpy()
 
     def update(self, states, next_states, actions, rewards, terminals):
         for state in states:

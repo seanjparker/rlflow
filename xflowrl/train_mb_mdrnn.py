@@ -16,25 +16,40 @@ from xflowrl.agents.network.mdrnn import gmm_loss
 
 
 def update_step(agent, states, next_states, actions, terminals, rewards):
-    if isinstance(states, list):
-        # masks = tf.concat([state["mask"] for state in states], axis=0)
-        input_list = [state["graph"] for state in states]
-        inputs = gn.utils_tf.concat(input_list, axis=0)
-    else:
-        inputs = states["graph"]
-        # masks = states["mask"]
+    # latent_state = np.array([agent.main_net.get_embeddings(state[0]["graph"]) for state in states])
+    # next_latent_state = np.array([agent.main_net.get_embeddings(next_state[0]["graph"]) for next_state in next_states])
 
-    if isinstance(next_states, list):
-        # next_state_masks = tf.concat([state["mask"] for state in next_states], axis=0)
-        next_state_input_list = [state["graph"] for state in next_states]
-        next_state_inputs = gn.utils_tf.concat(next_state_input_list, axis=0)
-    else:
-        next_state_inputs = next_states["graph"]
-        # next_state_masks = next_states["mask"]
+    latent_state = []
+    for batch in states:
+        latent_state.append(
+            tf.concat([agent.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+        )
 
-    latent_state = agent.main_net.get_embeddings(inputs)
-    next_latent_state = agent.main_net.get_embeddings(next_state_inputs)
-    mus, sigmas, log_pi, rs, ds, ns = agent.mdrnn(actions, latent_state, agent.model.mdrnn_state)
+    next_latent_state = []
+    for batch in next_states:
+        next_latent_state.append(
+            tf.concat([agent.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+        )
+
+    # if isinstance(states, list):
+    #     # masks = tf.concat([state["mask"] for state in states], axis=0)
+    #     input_list = [state["graph"] for state in states]
+    #     inputs = gn.utils_tf.concat(input_list, axis=0)
+    # else:
+    #     inputs = states["graph"]
+    #     # masks = states["mask"]
+    #
+    # if isinstance(next_states, list):
+    #     # next_state_masks = tf.concat([state["mask"] for state in next_states], axis=0)
+    #     next_state_input_list = [state["graph"] for state in next_states]
+    #     next_state_inputs = gn.utils_tf.concat(next_state_input_list, axis=0)
+    # else:
+    #     next_state_inputs = next_states["graph"]
+    #     # next_state_masks = next_states["mask"]
+
+    # latent_state = agent.main_net.get_embeddings(inputs)
+    # next_latent_state = agent.main_net.get_embeddings(next_state_inputs)
+    (mus, sigmas, log_pi, rs, ds), ns = agent.mdrnn(actions, latent_state, agent.model.mdrnn_state)
     agent.model.mdrnn_state = ns
 
     with tf.GradientTape() as tape:
@@ -100,10 +115,13 @@ def main(path_or_name, cont=None):
     print(f'Starting from episode = {start_episode}')
 
     states = []
+    states_batch = []
     next_states = []
+    next_states_batch = []
     rewards = []
     terminals = []
     actions = []
+    action_batch = []
 
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
@@ -142,16 +160,17 @@ def main(path_or_name, cont=None):
 
             # xfer_action = np.random.choice(xfer_possible)
             # loc_action = np.random.choice(loc_possible)
-            action = agent.act(state, explore=True)
+            xfer_action, loc_action = agent.act(state, explore=True)
 
             # Action delivered in shape (1,), need ()
-            next_state, reward, terminal, _ = env.step((action, action))
+            next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
 
             # Append to buffer.
             states.append(state)
             next_states.append(next_state)
             rewards.append(reward)
             terminals.append(terminal)
+            actions.append(xfer_action[0])
 
             state = next_state
             timestep += 1
@@ -165,6 +184,15 @@ def main(path_or_name, cont=None):
                 print(f'Difference:\t'
                      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
                 print('-' * 40)
+                # l1 = max(len(a) for a in actions)
+                # filled_actions = [a + [151] * (l1 - len(a)) for a in actions]
+                # filled_actions = actions + [151] * (20 - len(actions))
+                action_batch.append(actions.copy())
+                actions = []
+                states_batch.append(states.copy())
+                states = []
+                next_states_batch.append(next_states.copy())
+                next_states = []
 
                 # Do an update after collecting specified number of batches.
                 # This is a hyper-parameter that will require a lot of experimentation.
@@ -174,15 +202,15 @@ def main(path_or_name, cont=None):
                     # print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
                     #    current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
 
-                    loss = update_step(agent, states, next_states, actions, terminals, rewards)
+                    loss = update_step(agent, states_batch, next_states_batch, action_batch, terminals, rewards)
                     print(f'loss = {loss}')
 
                     # Reset buffers.
-                    states = []
-                    next_states = []
+                    states_batch = []
+                    next_states_batch = []
                     rewards = []
                     terminals = []
-                    actions = []
+                    action_batch = []
 
                     detailed_costs.append(env.get_detailed_costs())
                     with open(runtime_info_filename, 'w', encoding='utf-8') as f:

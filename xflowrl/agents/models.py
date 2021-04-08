@@ -6,7 +6,7 @@ import sonnet as snt
 from graph_nets import utils_tf
 
 from xflowrl.agents.network.mdrnn import gmm_loss
-from xflowrl.agents.utils import gae_helper
+from xflowrl.agents.utils import gae_helper, make_eager_graph_tuple
 
 
 def make_mlp_model(layer_size, num_layers, activate_final=True, activation=tf.nn.relu, name="mlp"):
@@ -80,17 +80,20 @@ class GraphNetwork(snt.Module):
             global_block_opt=_DEFAULT_GLOBAL_BLOCK_OPT
         )
 
-    def get_embeddings(self, graph_tuple):
+    def get_embeddings(self, graph_tuple, make_tensor=False):
         """
         Computes policy logits from graph_tuple. This is done by first computing a graph
         embedding on the incoming graph_tuple.
 
         Args:
             graph_tuple: Instance of gn.graphs.GraphsTuple.
-
+            make_tensor: Boolean flag to convert the graph_tuple to a tensor if true
         Returns:
             Globals: Tensor of shape graph_tuple.globals.shape
         """
+        if make_tensor:
+            graph_tuple = make_eager_graph_tuple(graph_tuple)
+
         # This performs one pass through the graph network and its aggregation functions.
         # In particular, this updates globals by first updating edges based on the edge
         # conditioning, then nodes, then globals.
