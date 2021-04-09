@@ -105,9 +105,24 @@ def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True):
     with fs).
     """
 
-    next_latent_obs = tf.expand_dims(next_latent_obs, axis=-2)
+    def pad_array_latents(arr):
+        max_l = 0
+        for a in arr:
+            max_l = max(max_l, a.shape[0])
+        p_lats = []
+        for i, t in enumerate(arr):
+            # if max_l != t.shape[0]:
+            last = [t[-1, :]] * (1600 - t.shape[0])
+            p_lats.append(tf.concat([t, last], axis=0))
+            # else:
+            #     p_lats.append(t)
+        return tf.convert_to_tensor(p_lats)
+
+    o = tf.transpose(pad_array_latents(next_latent_obs), [0, 2, 1])
+    # next_latent_obs = tf.expand_dims(t, axis=-2)
     normal_dist = tfp.distributions.Normal(mus, sigmas)
-    log_probs = log_pi + tf.reduce_sum(normal_dist.log_prob(next_latent_obs), axis=-1)
+    logs = normal_dist.log_prob(o)
+    log_probs = log_pi + tf.reduce_sum(logs, axis=-1)
     max_log_probs = tf.reduce_max(log_probs, axis=-1, keepdims=True)
     log_probs = log_probs - max_log_probs
 

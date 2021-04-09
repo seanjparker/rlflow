@@ -57,7 +57,7 @@ class MBAgent(_BaseAgent):
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.latent_size = num_locations * global_layer_size
-        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 5)
+        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
         # it returns a single tensor of size [B, num_xfers] for the xfers
