@@ -2,12 +2,10 @@ from typing import Union
 
 import sonnet as snt
 import tensorflow as tf
-import graph_nets as gn
-import numpy as np
 
 from xflowrl.agents.models import GraphNetwork, GraphModelV2
 from xflowrl.agents.network.controller import Controller
-from xflowrl.agents.network.mdrnn import MDRNN
+from xflowrl.agents.network.mdrnn import MDRNN, gmm_loss
 from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 
@@ -77,7 +75,11 @@ class MBAgent(_BaseAgent):
         self.trunk_optimizer = tf.keras.optimizers.RMSprop(learning_rate=gmm_learning_rate)
         self.con_optimizer = tf.keras.optimizers.Adam(learning_rate=controller_learning_rate)
 
-        checkpoint_root = "./checkpoint/models"
+        checkpoint_root = "./checkpoint/mb/models"
+        if network_name is not None:
+            checkpoint_root += f'/{network_name}'
+        if checkpoint_timestamp is not None:
+            checkpoint_root += f'/{checkpoint_timestamp}'
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), model=self.model, sub_model=self.sub_model)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
@@ -123,6 +125,36 @@ class MBAgent(_BaseAgent):
 
         return xfer_action.numpy(), location_action.numpy()
 
+    def update_step(self, states, next_states, actions, terminals, rewards):
+        latent_state = []
+        for batch in states:
+            latent_state.append(
+                tf.concat([self.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+            )
+
+        next_latent_state = []
+        for batch in next_states:
+            next_latent_state.append(
+                tf.concat([self.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+            )
+
+        with tf.GradientTape() as tape:
+            (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(actions, latent_state, self.model.mdrnn_state)
+            gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi, num_latents=self.mdrnn.num_latents)
+            # bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+            # bce = bce_f(terminals, ds)
+
+            # mse = tf.keras.losses.mse(rewards, rs)
+            scale = self.latent_size + 2
+            # loss = (gmm + bce + mse) / scale
+            loss = gmm / scale
+
+            grads = tape.gradient(loss, self.mdrnn.trainable_variables)
+            self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
+        # Store state for next forward pass
+        self.model.mdrnn_state = ns
+        return loss
+
     def update(self, states, next_states, actions, rewards, terminals):
         for state in states:
             state["graph"] = make_eager_graph_tuple(state["graph"])
@@ -136,10 +168,10 @@ class MBAgent(_BaseAgent):
         grads = tape.gradient(trunk_loss, self.trunk.trainable_variables)
         self.trunk_optimizer.apply_gradients(zip(grads, self.trunk.trainable_variables))
 
-        # Train head controller
-        with tf.GradientTape() as controller_tape:
-            xfer_loss = controller_loss()
-        grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
-        self.con_optimizer.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
-
+        # # Train head controller
+        # with tf.GradientTape() as controller_tape:
+        #     xfer_loss = controller_loss()
+        # grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
+        # self.con_optimizer.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
+        xfer_loss = tf.Tensor()  # Temp
         return trunk_loss.numpy(), xfer_loss.numpy()

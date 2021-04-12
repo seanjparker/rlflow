@@ -46,12 +46,14 @@ class MDRNN(MDRNNBase):
             max_l = 0
             for a in arr:
                 max_l = max(max_l, len(a))
+            max_l = 256  # TODO: fix hardcoded lstm state length
             return tf.convert_to_tensor([a + [151] * (max_l - len(a)) for a in arr], dtype=tf.float32)
 
         def pad_array_latents(arr):
             max_l = 0
             for a in arr:
                 max_l = max(max_l, a.shape[0])
+            max_l = 256
             p_lats = []
             for i, t in enumerate(arr):
                 if max_l != t.shape[0]:
@@ -76,7 +78,7 @@ class MDRNN(MDRNNBase):
         sigmas = out_full[:, stride:2 * stride]
         sigmas = tf.exp(tf.reshape(sigmas, [self.batch_size, self.num_gaussians, self.num_latents]))
 
-        pi = out_full[:,  2 * stride:2 * stride + self.num_gaussians]
+        pi = out_full[:, 2 * stride:2 * stride + self.num_gaussians]
         pi = tf.nn.log_softmax(tf.reshape(pi, [self.batch_size, self.num_gaussians]), axis=-1)
 
         rs = out_full[:, -2]
@@ -85,7 +87,7 @@ class MDRNN(MDRNNBase):
         return (mus, sigmas, pi, rs, ds), next_state
 
 
-def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True):
+def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True, num_latents=1600):
     """ Computes the gmm loss.
     Compute negative log probability of a batch for the GMM model.
     Precisely, with bs1, bs2, ... the sizes of the batch
@@ -106,22 +108,15 @@ def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True):
     """
 
     def pad_array_latents(arr):
-        max_l = 0
-        for a in arr:
-            max_l = max(max_l, a.shape[0])
         p_lats = []
         for i, t in enumerate(arr):
-            # if max_l != t.shape[0]:
-            last = [t[-1, :]] * (1600 - t.shape[0])
+            last = [t[-1, :]] * (num_latents - t.shape[0])
             p_lats.append(tf.concat([t, last], axis=0))
-            # else:
-            #     p_lats.append(t)
         return tf.convert_to_tensor(p_lats)
 
-    o = tf.transpose(pad_array_latents(next_latent_obs), [0, 2, 1])
-    # next_latent_obs = tf.expand_dims(t, axis=-2)
+    next_latent_obs = tf.transpose(pad_array_latents(next_latent_obs), [0, 2, 1])
     normal_dist = tfp.distributions.Normal(mus, sigmas)
-    logs = normal_dist.log_prob(o)
+    logs = normal_dist.log_prob(next_latent_obs)
     log_probs = log_pi + tf.reduce_sum(logs, axis=-1)
     max_log_probs = tf.reduce_max(log_probs, axis=-1, keepdims=True)
     log_probs = log_probs - max_log_probs

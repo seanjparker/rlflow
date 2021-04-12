@@ -15,56 +15,6 @@ from xflowrl.graphs.util import load_graph
 from xflowrl.agents.network.mdrnn import gmm_loss
 
 
-def update_step(agent, states, next_states, actions, terminals, rewards):
-    # latent_state = np.array([agent.main_net.get_embeddings(state[0]["graph"]) for state in states])
-    # next_latent_state = np.array([agent.main_net.get_embeddings(next_state[0]["graph"]) for next_state in next_states])
-
-    latent_state = []
-    for batch in states:
-        latent_state.append(
-            tf.concat([agent.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
-        )
-
-    next_latent_state = []
-    for batch in next_states:
-        next_latent_state.append(
-            tf.concat([agent.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
-        )
-
-    # if isinstance(states, list):
-    #     # masks = tf.concat([state["mask"] for state in states], axis=0)
-    #     input_list = [state["graph"] for state in states]
-    #     inputs = gn.utils_tf.concat(input_list, axis=0)
-    # else:
-    #     inputs = states["graph"]
-    #     # masks = states["mask"]
-    #
-    # if isinstance(next_states, list):
-    #     # next_state_masks = tf.concat([state["mask"] for state in next_states], axis=0)
-    #     next_state_input_list = [state["graph"] for state in next_states]
-    #     next_state_inputs = gn.utils_tf.concat(next_state_input_list, axis=0)
-    # else:
-    #     next_state_inputs = next_states["graph"]
-    #     # next_state_masks = next_states["mask"]
-
-    # latent_state = agent.main_net.get_embeddings(inputs)
-    # next_latent_state = agent.main_net.get_embeddings(next_state_inputs)
-    (mus, sigmas, log_pi, rs, ds), ns = agent.mdrnn(actions, latent_state, agent.model.mdrnn_state)
-    agent.model.mdrnn_state = ns
-
-    with tf.GradientTape() as tape:
-        gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
-        bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        bce = bce_f(terminals, ds)
-
-        mse = tf.keras.losses.mse(rewards, rs)
-        scale = agent.latent_size + 2
-        loss = (gmm + bce + mse) / scale
-    grads = tape.gradient(loss, agent.trunk.trainable_variables)
-    agent.trunk_optimizer.apply_gradients(zip(grads, agent.trunk.trainable_variables))
-    return loss
-
-
 def main(path_or_name, cont=None):
     graph_name, graph = load_graph(path_or_name)
 
@@ -202,7 +152,7 @@ def main(path_or_name, cont=None):
                     # print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
                     #    current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
 
-                    loss = update_step(agent, states_batch, next_states_batch, action_batch, terminals, rewards)
+                    loss = agent.update_step(states_batch, next_states_batch, action_batch, terminals, rewards)
                     print(f'loss = {loss}')
 
                     # Reset buffers.
