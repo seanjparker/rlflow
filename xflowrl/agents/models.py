@@ -353,7 +353,8 @@ class GraphModelV2(_BaseModel):
         property for comment on versions.
         """
 
-    def __init__(self, trunk, controller_head, batch_size, num_actions, state_name='graph', mask_name='mask', reduce_embedding=False):
+    def __init__(self, trunk, controller_head, batch_size, num_actions,
+                 state_name='graph', mask_name='mask', reduce_embedding=False):
         super(GraphModelV2, self).__init__()
         self.main_net = trunk._layers[0]
         self.mdrnn = trunk._layers[1]
@@ -416,7 +417,6 @@ class GraphModelV2(_BaseModel):
         # log_probs = tf.nn.log_softmax(logits)
         # action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
         return action.numpy()
-
 
     def update(self, states, actions, rewards, next_states, terminals, include_reward=False):
         latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
@@ -518,16 +518,4 @@ class RandomGraphModel(_BaseModel):
         return action.numpy()
 
     def update(self, states, actions, prev_log_probs, prev_values, rewards, terminals):
-        latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
-        next_latent_state = [self.main_net.get_embeddings(x["graph"]) for x in next_states]
-
-        (mus, sigmas, log_pi, rs, ds), _ = self.mdrnn(actions, latent_state)
-        gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
-        bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        bce = bce_f(terminals, ds)
-
-        mse = tf.keras.losses.mse(rewards, rs) if include_reward else 0
-        scale = self.latent_size + 2 if include_reward else self.latent_size + 1
-        mdrnn_loss = (gmm + bce + mse) / scale
-
-        return mdrnn_loss
+        raise NotImplementedError

@@ -27,9 +27,10 @@ class MDRNN(MDRNNBase):
     def initial_state(self):
         return self.rnn.initial_state(self.batch_size)
 
-    def __call__(self, actions, latents, prev_state):
+    def __call__(self, xfer_actions, loc_actions, latents, prev_state):
         """ Multiple steps
-        :args actions: (batch_size, seq_len, actions_size) tensor
+        :args xfer_actions: (batch_size, seq_len, actions_size) tensor
+        :args loc_actions: (batch_size, seq_len, actions_size) tensor
         :args latents: (batch_size, seq_len, latents_size) tensor
         :args prev_state: (batch_size, LSTMState) tensor
         :returns: mu_nlat, sig_nlat, pi_nlat, r, d, next_hidden, parameters of
@@ -64,8 +65,11 @@ class MDRNN(MDRNNBase):
             return tf.convert_to_tensor(p_lats)
 
         padded_latents = pad_array_latents(latents)
-        padded_actions = tf.expand_dims(pad_array_actions(actions), axis=-1)
-        in_all = tf.reshape(tf.concat([padded_actions, padded_latents], axis=-1), [self.batch_size, -1])
+        padded_xfer_actions = tf.expand_dims(pad_array_actions(xfer_actions), axis=-1)
+        padded_loc_actions = tf.expand_dims(pad_array_actions(loc_actions), axis=-1)
+        in_all = tf.reshape(
+            tf.concat([padded_xfer_actions, padded_loc_actions, padded_latents], axis=-1), [self.batch_size, -1]
+        )
         out_rnn, next_state = self.rnn(in_all, prev_state)
 
         out_full = self.gmm_linear(out_rnn)

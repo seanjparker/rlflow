@@ -125,7 +125,7 @@ class MBAgent(_BaseAgent):
 
         return xfer_action.numpy(), location_action.numpy()
 
-    def update_step(self, states, next_states, actions, terminals, rewards):
+    def update_step(self, states, next_states, xfer_actions, loc_actions, terminals, rewards):
         latent_state = []
         for batch in states:
             latent_state.append(
@@ -139,7 +139,8 @@ class MBAgent(_BaseAgent):
             )
 
         with tf.GradientTape() as tape:
-            (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(actions, latent_state, self.model.mdrnn_state)
+            (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(xfer_actions, loc_actions,
+                                                           latent_state, self.model.mdrnn_state)
             gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi, num_latents=self.mdrnn.num_latents)
             # bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
             # bce = bce_f(terminals, ds)

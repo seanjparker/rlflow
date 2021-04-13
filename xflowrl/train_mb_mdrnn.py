@@ -66,8 +66,10 @@ def main(path_or_name, cont=None):
     next_states_batch = []
     rewards = []
     terminals = []
-    actions = []
-    action_batch = []
+    xfer_actions = []
+    loc_actions = []
+    xfer_action_batch = []
+    loc_action_batch = []
 
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
@@ -116,7 +118,8 @@ def main(path_or_name, cont=None):
             next_states.append(next_state)
             rewards.append(reward)
             terminals.append(terminal)
-            actions.append(xfer_action[0])
+            xfer_actions.append(xfer_action[0])
+            loc_actions.append(xfer_action[0])
 
             state = next_state
             timestep += 1
@@ -133,8 +136,10 @@ def main(path_or_name, cont=None):
                 # l1 = max(len(a) for a in actions)
                 # filled_actions = [a + [151] * (l1 - len(a)) for a in actions]
                 # filled_actions = actions + [151] * (20 - len(actions))
-                action_batch.append(actions.copy())
-                actions = []
+                xfer_action_batch.append(xfer_actions.copy())
+                xfer_actions = []
+                loc_action_batch.append(loc_actions.copy())
+                loc_actions = []
                 states_batch.append(states.copy())
                 states = []
                 next_states_batch.append(next_states.copy())
@@ -142,7 +147,8 @@ def main(path_or_name, cont=None):
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     # Calculate loss for mini-batch rollout using the random agent
-                    loss = agent.update_step(states_batch, next_states_batch, action_batch, terminals, rewards)
+                    loss = agent.update_step(states_batch, next_states_batch,
+                                             xfer_action_batch, loc_action_batch, terminals, rewards)
                     print(f'MDRNN Loss = {loss}')
 
                     # Reset buffers.
@@ -150,7 +156,8 @@ def main(path_or_name, cont=None):
                     next_states_batch = []
                     rewards = []
                     terminals = []
-                    action_batch = []
+                    xfer_action_batch = []
+                    loc_action_batch = []
 
                     detailed_costs.append(env.get_detailed_costs())
                     with open(runtime_info_filename, 'w', encoding='utf-8') as f:
