@@ -111,17 +111,21 @@ class MBAgent(_BaseAgent):
             values = tf.cast(tf.convert_to_tensor(value=mask), tf.bool)
             return tf.where(values)
 
-        def random_choice(x, size, axis=0):
-            dim_x = tf.cast(tf.shape(x)[axis], tf.int64)
-            indices = tf.range(0, dim_x, dtype=tf.int64)
-            sample_index = tf.random.shuffle(indices)[:size]
-            sample = tf.gather(x, sample_index, axis=axis)
-            return sample
+        def random_choice(x, size=1):
+            if x.shape[0] > 1:
+                # 20% chance of picking the terminating action under normal conditions
+                a_prob = 0.8 / (x.shape[0] - 1)
+                probabilities = tf.constant(([a_prob] * (x.shape[0] - 1)) + [0.2])
+            else:
+                probabilities = tf.constant([1.0])
+            rescaled_probs = tf.expand_dims(tf.math.log(probabilities), 0)
+            idx = tf.squeeze(tf.random.categorical(rescaled_probs, num_samples=size), axis=[0])
+            return tf.gather(x, idx)
 
-        xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1), 1)
+        xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1))
 
         _, location_mask = self.state_xfer_masked(states, xfer_action)
-        location_action = random_choice(tf.squeeze(logical_mask(mask=location_mask), axis=1), 1)
+        location_action = random_choice(tf.squeeze(logical_mask(mask=location_mask), axis=1))
 
         return xfer_action.numpy(), location_action.numpy()
 

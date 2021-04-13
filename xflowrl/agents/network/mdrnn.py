@@ -48,7 +48,7 @@ class MDRNN(MDRNNBase):
             for a in arr:
                 max_l = max(max_l, len(a))
             max_l = 256  # TODO: fix hardcoded lstm state length
-            return tf.convert_to_tensor([a + [151] * (max_l - len(a)) for a in arr], dtype=tf.float32)
+            return tf.convert_to_tensor([a + [a[-1]] * (max_l - len(a)) for a in arr], dtype=tf.float32)
 
         def pad_array_latents(arr):
             max_l = 0

@@ -102,12 +102,6 @@ def main(path_or_name, cont=None):
         timestep = 0
         while not terminal:
             # Random action agent
-            # xfer_possible = np.array([env.get_available_xfers()])
-            # loc_possible = np.array(env.get_available_locations())
-            # loc_possible = loc_possible[loc_possible != 0]
-
-            # xfer_action = np.random.choice(xfer_possible)
-            # loc_action = np.random.choice(loc_possible)
             xfer_action, loc_action = agent.act(state, explore=True)
 
             # Action delivered in shape (1,), need ()
@@ -119,7 +113,7 @@ def main(path_or_name, cont=None):
             rewards.append(reward)
             terminals.append(terminal)
             xfer_actions.append(xfer_action[0])
-            loc_actions.append(xfer_action[0])
+            loc_actions.append(loc_action[0])
 
             state = next_state
             timestep += 1
@@ -131,7 +125,7 @@ def main(path_or_name, cont=None):
                 final_runtime = env.get_cost()
                 print(f'Final runtime:\t{final_runtime:.4f}')
                 print(f'Difference:\t'
-                     f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
+                      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
                 print('-' * 40)
                 # l1 = max(len(a) for a in actions)
                 # filled_actions = [a + [151] * (l1 - len(a)) for a in actions]
