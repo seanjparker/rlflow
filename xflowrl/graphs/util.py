@@ -1,6 +1,7 @@
 import onnx
 import taso as ts
 from xflowrl.graphs.bert import build_graph_bert
+from xflowrl.graphs.inceptionv3 import build_graph_inception_v3
 from xflowrl.graphs.nasnet import build_graph_nasnet
 
 
@@ -19,7 +20,8 @@ def load_graph_from_file(filename):
 def load_graph_by_name(graph_name):
     graphs = {
         'BERT': build_graph_bert,
-        'NASnet': build_graph_nasnet
+        'NASnet': build_graph_nasnet,
+        'InceptionV3': build_graph_inception_v3
     }
     if graph_name not in graphs:
         raise ValueError(f"Invalid graph name: {graph_name}")
