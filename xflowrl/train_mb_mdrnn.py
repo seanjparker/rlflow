@@ -5,14 +5,10 @@ import sys
 from datetime import datetime
 import os
 import tensorflow as tf
-import numpy as np
-import graph_nets as gn
 
 from xflowrl.agents.mb_agent import MBAgent
-from xflowrl.agents.utils import make_eager_graph_tuple
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
 from xflowrl.graphs.util import load_graph
-from xflowrl.agents.network.mdrnn import gmm_loss
 
 
 def main(path_or_name, cont=None):
@@ -144,16 +140,10 @@ def main(path_or_name, cont=None):
                 next_states_batch.append(next_states.copy())
                 next_states = []
 
-                # Do an update after collecting specified number of batches.
-                # This is a hyper-parameter that will require a lot of experimentation.
-                # One episode could be one rewrite of the graph, and it may be desirable to perform a small
-                # update after every rewrite.
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
-                    # print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
-                    #    current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
-
+                    # Calculate loss for mini-batch rollout using the random agent
                     loss = agent.update_step(states_batch, next_states_batch, action_batch, terminals, rewards)
-                    print(f'loss = {loss}')
+                    print(f'MDRNN Loss = {loss}')
 
                     # Reset buffers.
                     states_batch = []

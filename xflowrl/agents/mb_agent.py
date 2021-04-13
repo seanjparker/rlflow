@@ -145,7 +145,8 @@ class MBAgent(_BaseAgent):
             # bce = bce_f(terminals, ds)
 
             # mse = tf.keras.losses.mse(rewards, rs)
-            scale = self.latent_size + 2
+            # scale = self.latent_size + 2
+            scale = self.latent_size
             # loss = (gmm + bce + mse) / scale
             loss = gmm / scale
 
