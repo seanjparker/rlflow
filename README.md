@@ -41,12 +41,14 @@ _Note: This command may fail if you have not yet installed the TASO package._
 
 <details>
   <summary>2021 Experiments Requirements</summary>
-  ## Requirements
-- Python: 3.7.0
-- TensorFlow: 2.3.2
-- Cuda: 10.1 (Used 18.04 (LTS), the cuBLAS library needs to be manually installed, it doesn't get installed into `/usr/local/cuda10-1` by default)
-- CuDNN: 7.6.5.32-1+cuda10.1
-- Nvidia Driver: >= 418.39
+  <h5>Requirements</h5>
+    <ul>
+    <li> Python: 3.7.0 </li>
+    <li> TensorFlow: 2.3.2 </li>
+    <li> Cuda: 10.1 (Used 18.04 (LTS), the cuBLAS library needs to be manually installed, it doesn't get installed into `/usr/local/cuda10-1` by default) </li>
+    <li> CuDNN: 7.6.5.32-1+cuda10.1 </li>
+    <li> Nvidia Driver: >= 418.39 </li>
+    </ul>
 </details>
 
 ### Installing CUDA
@@ -91,6 +93,7 @@ pushd /path/to/taso
 cp /path/to/xflowrl/TASO_*.patch .
 patch -p0 < TASO_01_get_pointer_address.patch
 patch -p0 < TASO_02_run_memorysafe.patch
+patch -p0 < TASO_03_get_costs.patch
 popd
 ```
 
