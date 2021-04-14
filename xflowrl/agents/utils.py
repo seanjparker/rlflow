@@ -18,11 +18,6 @@ class _BaseAgent(object):
     def update(self, *args):
         pass
 
-    def save(self):
-        """Saves checkpoint to path."""
-        path = self.ckpt_manager.save()
-        print("Saving model to path = ", path)
-
     def export(self, graph):
         import taso
         import onnx
@@ -58,6 +53,11 @@ class _BaseAgent(object):
 
         return tuples, masks
 
+    def save(self):
+        """Saves checkpoint to path."""
+        path = self.ckpt_manager.save()
+        print("Saving model to path = ", path)
+
     def load(self):
         """
         Loads model from latest checkpoint. Note: due to eager execution, this can only be called once
@@ -66,6 +66,7 @@ class _BaseAgent(object):
         self.ckpt.restore(self.ckpt_manager.latest_checkpoint)
         if self.ckpt_manager.latest_checkpoint:
             print("Restoring model from path = {}".format(self.ckpt_manager.latest_checkpoint))
+            self.ckpt.step.assign_add(1)
         else:
             print("Initializing from scratch.")
 
