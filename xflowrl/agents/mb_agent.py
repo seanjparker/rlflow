@@ -80,7 +80,7 @@ class MBAgent(_BaseAgent):
             checkpoint_root += f'/{network_name}'
         if checkpoint_timestamp is not None:
             checkpoint_root += f'/{checkpoint_timestamp}'
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk)
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
     def act(self, states: Union[dict, list], explore=True):
