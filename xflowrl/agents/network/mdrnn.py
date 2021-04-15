@@ -23,11 +23,12 @@ class MDRNN(MDRNNBase):
         super().__init__(num_latents, num_hiddens, num_gaussians)
         self.rnn = snt.LSTM(num_hiddens)
         self.batch_size = batch_size
+        self.last_state = self._initial_state()
 
-    def initial_state(self):
+    def _initial_state(self):
         return self.rnn.initial_state(self.batch_size)
 
-    def __call__(self, xfer_actions, loc_actions, latents, prev_state):
+    def __call__(self, xfer_actions, loc_actions, latents):
         """ Multiple steps
         :args xfer_actions: (batch_size, seq_len, actions_size) tensor
         :args loc_actions: (batch_size, seq_len, actions_size) tensor
@@ -70,7 +71,7 @@ class MDRNN(MDRNNBase):
         in_all = tf.reshape(
             tf.concat([padded_xfer_actions, padded_loc_actions, padded_latents], axis=-1), [self.batch_size, -1]
         )
-        out_rnn, next_state = self.rnn(in_all, prev_state)
+        out_rnn, next_state = self.rnn(in_all, self.last_state)
 
         out_full = self.gmm_linear(out_rnn)
 

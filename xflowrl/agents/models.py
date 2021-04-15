@@ -363,7 +363,6 @@ class GraphModelV2(_BaseModel):
         self.mask_name = mask_name
         self.reduce_embedding = reduce_embedding
 
-        self.mdrnn_state = self.mdrnn.initial_state()
         self.controller = controller_head
 
         self.num_actions = num_actions

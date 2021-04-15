@@ -130,8 +130,7 @@ class RandomAgent(_BaseAgent):
             )
 
         with tf.GradientTape() as tape:
-            (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(xfer_actions, loc_actions,
-                                                           latent_state, self.model.mdrnn_state)
+            (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(xfer_actions, loc_actions, latent_state)
             gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi, num_latents=self.mdrnn.num_latents)
             # bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
             # bce = bce_f(terminals, ds)
@@ -145,7 +144,7 @@ class RandomAgent(_BaseAgent):
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
         # Store state for next forward pass
-        self.model.mdrnn_state = ns
+        self.mdrnn.last_state = ns
         return loss
 
     def update(self, states, next_states, actions, rewards, terminals):

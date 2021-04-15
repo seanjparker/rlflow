@@ -61,16 +61,15 @@ def main(path_or_name, cont=None):
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
 
+    # Init the world model environment after we have created the agent
+    env.init_state(agent.main_net, agent.mdrnn)
+
     states = []
-    states_batch = []
     next_states = []
-    next_states_batch = []
     rewards = []
     terminals = []
     xfer_actions = []
     loc_actions = []
-    xfer_action_batch = []
-    loc_action_batch = []
 
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
@@ -97,12 +96,11 @@ def main(path_or_name, cont=None):
         env.set_graph(graph)
 
         state = env.reset()
-        start_runtime = env.get_cost()
-        print(f'Start runtime: {start_runtime:.4f}')
+        # start_runtime = env.get_cost()
+        # print(f'Start runtime: {start_runtime:.4f}')
 
         timestep = 0
         while not terminal:
-            # Random action agent
             xfer_action, loc_action = agent.act(state, explore=True)
 
             # Action delivered in shape (1,), need ()
@@ -113,8 +111,8 @@ def main(path_or_name, cont=None):
             next_states.append(next_state)
             rewards.append(reward)
             terminals.append(terminal)
-            xfer_actions.append(xfer_action[0])
-            loc_actions.append(loc_action[0])
+            xfer_actions.append(xfer_action)
+            loc_actions.append(loc_action)
 
             state = next_state
             timestep += 1
@@ -123,35 +121,22 @@ def main(path_or_name, cont=None):
             if terminal:
                 timestep = 0
 
-                final_runtime = env.get_cost()
-                print(f'Final runtime:\t{final_runtime:.4f}')
+                print(f'Avg reward:\t{final_runtime:.4f}')
                 print(f'Difference:\t'
                       f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
                 print('-' * 40)
-                # l1 = max(len(a) for a in actions)
-                # filled_actions = [a + [151] * (l1 - len(a)) for a in actions]
-                # filled_actions = actions + [151] * (20 - len(actions))
-                xfer_action_batch.append(xfer_actions.copy())
-                xfer_actions = []
-                loc_action_batch.append(loc_actions.copy())
-                loc_actions = []
-                states_batch.append(states.copy())
-                states = []
-                next_states_batch.append(next_states.copy())
-                next_states = []
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
-                    # Calculate loss for mini-batch rollout using the random agent
-                    loss = agent.update(states_batch, next_states_batch, xfer_action_batch, terminals, rewards)
+                    loss = agent.update(states, next_states, xfer_actions, terminals, rewards)
                     print(f'Loss = {loss}')
 
-                    # Reset buffers.
-                    states_batch = []
-                    next_states_batch = []
-                    rewards = []
+                    # Reset buffers
+                    states = []
+                    next_states = []
+                    xfer_actions = []
+                    loc_actions = []
                     terminals = []
-                    xfer_action_batch = []
-                    loc_action_batch = []
+                    rewards = []
 
                     detailed_costs.append(env.get_detailed_costs())
                     with open(runtime_info_filename, 'w', encoding='utf-8') as f:
