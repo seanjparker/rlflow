@@ -6,15 +6,16 @@ from datetime import datetime
 import os
 import tensorflow as tf
 
-from xflowrl.agents.mb_agent import RandomAgent
+from xflowrl.agents.mb_agent import MBAgent
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
+from xflowrl.environment.worldmodel import WorldModelEnvironment
 from xflowrl.graphs.util import load_graph
 
 
 def main(path_or_name, cont=None):
     graph_name, graph = load_graph(path_or_name)
 
-    path_prefix = f'logs/xflowrl_mb/{graph_name}/'
+    path_prefix = f'logs/xflowrl_mb_ctrl/{graph_name}/'
     if cont:
         path_prefix += cont
         timestamp = cont
@@ -34,7 +35,7 @@ def main(path_or_name, cont=None):
 
     num_locations = 200
 
-    env = HierarchicalEnvironment(num_locations=num_locations, real_measurements=False, reward_function=None)
+    env = WorldModelEnvironment(num_locations=num_locations, reward_function=None)
     env.set_graph(graph)
     env.reset()  # Need to do this to get the number of actions
 
@@ -55,7 +56,7 @@ def main(path_or_name, cont=None):
         checkpoint_timestamp=timestamp
     )
 
-    agent = RandomAgent(**hparams)
+    agent = MBAgent(**hparams)
     agent.load()
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
@@ -141,9 +142,8 @@ def main(path_or_name, cont=None):
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     # Calculate loss for mini-batch rollout using the random agent
-                    loss = agent.update_mdrnn(states_batch, next_states_batch,
-                                              xfer_action_batch, loc_action_batch, terminals, rewards)
-                    print(f'MDRNN Loss = {loss}')
+                    loss = agent.update(states_batch, next_states_batch, xfer_action_batch, terminals, rewards)
+                    print(f'Loss = {loss}')
 
                     # Reset buffers.
                     states_batch = []

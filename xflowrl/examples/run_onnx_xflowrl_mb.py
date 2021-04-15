@@ -9,7 +9,7 @@ import os
 import numpy as np
 import tensorflow as tf
 
-from xflowrl.agents.mb_agent import MBAgent
+from xflowrl.agents.mb_agent import RandomAgent
 from xflowrl.environment.hierarchical import HierarchicalEnvironment
 from xflowrl.graphs.util import load_graph
 from xflowrl.util.util import plot_xfer_heatmap, plot_to_image
@@ -67,7 +67,7 @@ def main(path_or_name, cont=None):
     # How often will we update?
     episodes_per_batch = 10  # Todo: change
 
-    agent = MBAgent(**hparams)
+    agent = RandomAgent(**hparams)
     agent.load()
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
