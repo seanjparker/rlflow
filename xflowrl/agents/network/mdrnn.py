@@ -19,11 +19,12 @@ class MDRNNBase(snt.Module):
 
 class MDRNN(MDRNNBase):
     """ MDRNN model """
-    def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians):
+    def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians, training=False):
         super().__init__(num_latents, num_hiddens, num_gaussians)
         self.rnn = snt.LSTM(num_hiddens)
         self.batch_size = batch_size
         self.last_state = self._initial_state()
+        self.training = training
 
     def _initial_state(self):
         return self.rnn.initial_state(self.batch_size)
@@ -65,13 +66,19 @@ class MDRNN(MDRNNBase):
                     p_lats.append(t)
             return tf.convert_to_tensor(p_lats)
 
-        padded_latents = pad_array_latents(latents)
-        padded_xfer_actions = tf.expand_dims(pad_array_actions(xfer_actions), axis=-1)
-        padded_loc_actions = tf.expand_dims(pad_array_actions(loc_actions), axis=-1)
+        padded_latents = pad_array_latents(latents) if self.training else latents
+        padded_xfer_actions = pad_array_actions(xfer_actions) \
+            if self.training else tf.convert_to_tensor([xfer_actions], dtype=tf.float32)
+        padded_loc_actions = pad_array_actions(loc_actions) \
+            if self.training else tf.convert_to_tensor([loc_actions], dtype=tf.float32)
+        padded_xfer_actions = tf.expand_dims(padded_xfer_actions, axis=-1)
+        padded_loc_actions = tf.expand_dims(padded_loc_actions, axis=-1)
+
         in_all = tf.reshape(
             tf.concat([padded_xfer_actions, padded_loc_actions, padded_latents], axis=-1), [self.batch_size, -1]
         )
         out_rnn, next_state = self.rnn(in_all, self.last_state)
+        self.last_state = next_state
 
         out_full = self.gmm_linear(out_rnn)
 

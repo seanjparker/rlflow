@@ -5,9 +5,9 @@ import sys
 from datetime import datetime
 import os
 import tensorflow as tf
+import numpy as np
 
 from xflowrl.agents.mb_agent import MBAgent
-from xflowrl.environment.hierarchical import HierarchicalEnvironment
 from xflowrl.environment.worldmodel import WorldModelEnvironment
 from xflowrl.graphs.util import load_graph
 
@@ -35,9 +35,9 @@ def main(path_or_name, cont=None):
 
     num_locations = 200
 
-    env = WorldModelEnvironment(num_locations=num_locations, reward_function=None)
+    env = WorldModelEnvironment(num_locations=num_locations)
     env.set_graph(graph)
-    env.reset()  # Need to do this to get the number of actions
+    init_graph = env.reset()  # Need to do this to get the number of actions
 
     num_actions = env.get_num_actions()
 
@@ -50,7 +50,7 @@ def main(path_or_name, cont=None):
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        gmm_learning_rate=0.0025,
+        controller_learning_rate=0.0025,
         message_passing_steps=5,
         network_name=graph_name,
         checkpoint_timestamp=timestamp
@@ -90,19 +90,13 @@ def main(path_or_name, cont=None):
 
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, num_episodes):
-        # Keep stepping
         terminal = False
-
-        env.set_graph(graph)
-
-        state = env.reset()
-        # start_runtime = env.get_cost()
-        # print(f'Start runtime: {start_runtime:.4f}')
-
+        state = env.reset_wm(init_graph)
         timestep = 0
         while not terminal:
-            xfer_action, loc_action = agent.act(state, explore=True)
-
+            # xfer_action, loc_action = agent.act(state, explore=True)
+            xfer_action = np.array([95])
+            loc_action = np.array([48])
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
 
@@ -120,15 +114,9 @@ def main(path_or_name, cont=None):
             # If terminal, reset.
             if terminal:
                 timestep = 0
-
-                print(f'Avg reward:\t{final_runtime:.4f}')
-                print(f'Difference:\t'
-                      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
-                print('-' * 40)
-
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     loss = agent.update(states, next_states, xfer_actions, terminals, rewards)
-                    print(f'Loss = {loss}')
+                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {loss}')
 
                     # Reset buffers
                     states = []

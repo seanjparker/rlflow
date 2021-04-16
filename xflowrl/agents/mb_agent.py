@@ -11,7 +11,7 @@ from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 class RandomAgent(_BaseAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
-                 controller_learning_rate=0.001, gmm_learning_rate=0.01, message_passing_steps=5,
+                 gmm_learning_rate=0.01, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2, node_model_layer_size=8, num_node_layers=2,
                  global_layer_size=8, num_global_layers=2, network_name=None, checkpoint_timestamp=None):
         """
@@ -21,7 +21,6 @@ class RandomAgent(_BaseAgent):
             reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
-            controller_learning_rate (float): Learning rate for the controllers
             gmm_learning_rate (float): Learning rate for MDRNN
             message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
@@ -51,7 +50,7 @@ class RandomAgent(_BaseAgent):
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.latent_size = num_locations * global_layer_size
-        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8)
+        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8, training=True)
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 
@@ -143,8 +142,6 @@ class RandomAgent(_BaseAgent):
 
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
-        # Store state for next forward pass
-        self.mdrnn.last_state = ns
         return loss
 
     def update(self, states, next_states, actions, rewards, terminals):
@@ -165,7 +162,6 @@ class MBAgent(_BaseAgent):
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
             controller_learning_rate (float): Learning rate for the controllers
-            gmm_learning_rate (float): Learning rate for MDRNN
             message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
             edge_model_layer_size (int): Hidden layer neurons.
@@ -194,7 +190,7 @@ class MBAgent(_BaseAgent):
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.latent_size = num_locations * global_layer_size
-        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8)
+        self.mdrnn = MDRNN(1, self.latent_size, num_actions, 256, 8)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
         # it returns a single tensor of size [B, num_xfers] for the xfers
@@ -245,10 +241,26 @@ class MBAgent(_BaseAgent):
         else:
             states["graph"] = make_eager_graph_tuple(states["graph"])
 
-        xfer_action = tf.Tensor()
+        def logical_mask(mask_name="mask", mask=None):
+            mask = states[mask_name] if mask is None else mask
+            values = tf.cast(tf.convert_to_tensor(value=mask), tf.bool)
+            return tf.where(values)
+
+        def random_choice(x, size=1):
+            if x.shape[0] > 1:
+                # 20% chance of picking the terminating action under normal conditions
+                a_prob = 0.8 / (x.shape[0] - 1)
+                probabilities = tf.constant(([a_prob] * (x.shape[0] - 1)) + [0.2])
+            else:
+                probabilities = tf.constant([1.0])
+            rescaled_probs = tf.expand_dims(tf.math.log(probabilities), 0)
+            idx = tf.squeeze(tf.random.categorical(rescaled_probs, num_samples=size), axis=[0])
+            return tf.gather(x, idx)
+
+        xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1))
 
         _, location_mask = self.state_xfer_masked(states, xfer_action)
-        location_action = tf.Tensor()
+        location_action = random_choice(tf.squeeze(logical_mask(mask=location_mask), axis=1))
 
         return xfer_action.numpy(), location_action.numpy()
 
