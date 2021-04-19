@@ -35,10 +35,13 @@ class RandomAgent(_BaseAgent):
             checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
         super().__init__()
+        self.batch_size = batch_size
+        self.latent_size = 32
+        self.hidden_size = 256
+        self.gaussian_size = 8
 
         # Create the GNN that will take the dataflow graph as an input and produce an embedding of the graph
         # This is the same as the 'Visual Model (V)' in the World Model paper by Ha et al.
-        self.latent_size = 32
         self.main_net = GraphNetwork(
             reducer=reducer,
             edge_model_layer_size=edge_model_layer_size,
@@ -51,7 +54,8 @@ class RandomAgent(_BaseAgent):
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8, training=True)
+        self.mdrnn = MDRNN(batch_size,
+                           self.latent_size, num_actions, self.hidden_size, self.gaussian_size, training=True)
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 
@@ -123,7 +127,6 @@ class RandomAgent(_BaseAgent):
                 np.concatenate(
                     [self.main_net.get_embeddings(gt["graph"], make_tensor=True).numpy() for gt in batch], axis=0)
             )
-
         next_latent_state = []
         for batch in next_states:
             next_latent_state.append(
@@ -131,17 +134,28 @@ class RandomAgent(_BaseAgent):
                     [self.main_net.get_embeddings(gt["graph"], make_tensor=True).numpy() for gt in batch], axis=0)
             )
 
+        def pad_and_transpose(t, max_in_dims):
+            s = tf.shape(t)
+            paddings = [[0, m - s[i]] for i, m in enumerate(max_in_dims)]
+            return tf.transpose(tf.pad(t, paddings), [1, 0])
+
+        pad_dims = [self.batch_size, self.hidden_size]
+        ragged_shape = [None, self.hidden_size]
+        terminals = pad_and_transpose(
+            tf.ragged.constant(terminals, dtype=tf.float32).to_tensor(shape=ragged_shape), pad_dims
+        )
+        rewards = pad_and_transpose(
+            tf.ragged.constant(rewards, dtype=tf.float32).to_tensor(shape=ragged_shape), pad_dims
+        )
+
         with tf.GradientTape() as tape:
             (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(xfer_actions, loc_actions, latent_state)
             gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi, num_latents=self.mdrnn.num_latents)
-            # bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-            # bce = bce_f(terminals, ds)
-
-            # mse = tf.keras.losses.mse(rewards, rs)
-            # scale = self.latent_size + 2
-            scale = self.latent_size
-            # loss = (gmm + bce + mse) / scale
-            loss = gmm / scale
+            bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+            bce = bce_f(terminals, ds)
+            mse = tf.keras.losses.mse(rewards, rs)
+            scale = self.latent_size + 2
+            loss = (gmm + bce + mse) / scale
 
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))

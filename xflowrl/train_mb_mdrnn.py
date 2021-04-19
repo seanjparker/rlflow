@@ -60,16 +60,12 @@ def main(path_or_name, cont=None):
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
 
-    states = []
     states_batch = []
-    next_states = []
     next_states_batch = []
-    rewards = []
-    terminals = []
-    xfer_actions = []
-    loc_actions = []
     xfer_action_batch = []
     loc_action_batch = []
+    rewards_batch = []
+    terminals_batch = []
 
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
@@ -100,6 +96,14 @@ def main(path_or_name, cont=None):
         print(f'Start runtime: {start_runtime:.4f}')
 
         timestep = 0
+
+        # Define epoch buffers
+        states = []
+        next_states = []
+        xfer_actions = []
+        loc_actions = []
+        rewards = []
+        terminals = []
         while not terminal:
             # Random action agent
             xfer_action, loc_action = agent.act(state, explore=True)
@@ -127,31 +131,27 @@ def main(path_or_name, cont=None):
                 print(f'Difference:\t'
                       f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
                 print('-' * 40)
-                # l1 = max(len(a) for a in actions)
-                # filled_actions = [a + [151] * (l1 - len(a)) for a in actions]
-                # filled_actions = actions + [151] * (20 - len(actions))
-                xfer_action_batch.append(xfer_actions.copy())
-                xfer_actions = []
-                loc_action_batch.append(loc_actions.copy())
-                loc_actions = []
+
                 states_batch.append(states.copy())
-                states = []
                 next_states_batch.append(next_states.copy())
-                next_states = []
+                xfer_action_batch.append(xfer_actions.copy())
+                loc_action_batch.append(loc_actions.copy())
+                rewards_batch.append(rewards.copy())
+                terminals_batch.append(terminals.copy())
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     # Calculate loss for mini-batch rollout using the random agent
                     loss = agent.update_mdrnn(states_batch, next_states_batch,
-                                              xfer_action_batch, loc_action_batch, terminals, rewards)
+                                              xfer_action_batch, loc_action_batch, terminals_batch, rewards_batch)
                     print(f'MDRNN Loss = {loss}')
 
-                    # Reset buffers.
+                    # Reset buffers
                     states_batch = []
                     next_states_batch = []
-                    rewards = []
-                    terminals = []
                     xfer_action_batch = []
                     loc_action_batch = []
+                    rewards_batch = []
+                    terminals_batch = []
 
                     detailed_costs.append(env.get_detailed_costs())
                     with open(runtime_info_filename, 'w', encoding='utf-8') as f:
