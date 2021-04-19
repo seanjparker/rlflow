@@ -140,9 +140,10 @@ def main(path_or_name, cont=None):
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     # Calculate loss for mini-batch rollout using the random agent
-                    loss = agent.update_mdrnn(states_batch, next_states_batch,
-                                              xfer_action_batch, loc_action_batch, terminals_batch, rewards_batch)
-                    print(f'MDRNN Loss = {loss}')
+                    losses = agent.update_mdrnn(states_batch, next_states_batch,
+                                                xfer_action_batch, loc_action_batch, terminals_batch, rewards_batch)
+                    print(
+                        f'Loss = {losses["loss"]}, GMM = {losses["gmm"]}, BCE = {losses["bce"]}, MSE = {losses["mse"]}')
 
                     # Reset buffers
                     states_batch = []
@@ -158,7 +159,10 @@ def main(path_or_name, cont=None):
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():
-                        tf.summary.scalar('loss', loss, step=current_episode)
+                        tf.summary.scalar('loss (avg)', losses["loss"], step=current_episode)
+                        tf.summary.scalar('gmm (mdn-rnn)', losses["gmm"], step=current_episode)
+                        tf.summary.scalar('bce (terminals)', losses["bce"], step=current_episode)
+                        tf.summary.scalar('mse (rewards)', losses["mse"], step=current_episode)
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')

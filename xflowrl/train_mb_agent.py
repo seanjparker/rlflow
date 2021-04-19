@@ -128,8 +128,8 @@ def main(_args):
                 terminals_batch.append(terminals.copy())
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
-                    losses = agent.update(states, next_states, xfer_actions, terminals, rewards)
-                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {losses["loss"]}')
+                    loss = agent.update(states, next_states, xfer_actions, terminals, rewards)
+                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {loss}')
 
                     # Reset buffers
                     states_batch = []
@@ -145,10 +145,7 @@ def main(_args):
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():
-                        tf.summary.scalar('loss (avg)', losses["loss"], step=current_episode)
-                        tf.summary.scalar('gmm (mdn-rnn)', losses["gmm"], step=current_episode)
-                        tf.summary.scalar('bce (terminals)', losses["bce"], step=current_episode)
-                        tf.summary.scalar('mse (rewards)', losses["mse"], step=current_episode)
+                        tf.summary.scalar('loss', loss, step=current_episode)
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
