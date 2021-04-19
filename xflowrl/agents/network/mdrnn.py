@@ -21,13 +21,16 @@ class MDRNN(MDRNNBase):
     """ MDRNN model """
     def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians, training=False):
         super().__init__(num_latents, num_hiddens, num_gaussians)
-        self.rnn = snt.LSTM(num_hiddens)
+        # Use an snt.UnrolledLSTM as it is an order of magnitude faster then snt.dynamic_unroll with a LSTM core
+        # + need to support different sequence length and batch sizes
+        self.unrolled_lstm = snt.UnrolledLSTM(num_hiddens)
         self.batch_size = batch_size
+        self.seq_len = 256  # TODO: fix hardcoded lstm state length
         self.last_state = self._initial_state()
         self.training = training
 
     def _initial_state(self):
-        return self.rnn.initial_state(self.batch_size)
+        return self.unrolled_lstm.initial_state(self.batch_size)
 
     def __call__(self, xfer_actions, loc_actions, latents):
         """ Multiple steps
@@ -45,61 +48,44 @@ class MDRNN(MDRNNBase):
             - dones: (seq_len, batch_size) tensor
             - next_state: (LSTMState) Next state of the LSTM Cell
         """
-        def pad_array_actions(arr):
-            max_l = 0
-            for a in arr:
-                max_l = max(max_l, len(a))
-            max_l = 256  # TODO: fix hardcoded lstm state length
-            return tf.convert_to_tensor([a + [a[-1]] * (max_l - len(a)) for a in arr], dtype=tf.float32)
+        padded_xfer_actions = tf.expand_dims(
+            tf.ragged.constant(xfer_actions, dtype=tf.float32).to_tensor(shape=[None, self.seq_len]), axis=-1)
+        padded_loc_actions = tf.expand_dims(
+            tf.ragged.constant(loc_actions, dtype=tf.float32).to_tensor(shape=[None, self.seq_len]), axis=-1)
+        padded_latents = tf.ragged.constant(latents, dtype=tf.float32).to_tensor(
+            shape=[None, self.seq_len, self.num_latents])
 
-        def pad_array_latents(arr):
-            max_l = 0
-            for a in arr:
-                max_l = max(max_l, a.shape[0])
-            max_l = 256
-            p_lats = []
-            for i, t in enumerate(arr):
-                if max_l != t.shape[0]:
-                    last = [t[-1, :]] * (max_l - t.shape[0])
-                    p_lats.append(tf.concat([t, last], axis=0))
-                else:
-                    p_lats.append(t)
-            return tf.convert_to_tensor(p_lats)
+        padded_latents = tf.transpose(padded_latents, [1, 0, 2])
+        padded_xfer_actions = tf.transpose(padded_xfer_actions, [1, 0, 2])
+        padded_loc_actions = tf.transpose(padded_loc_actions, [1, 0, 2])
 
-        padded_latents = pad_array_latents(latents) if self.training else latents
-        padded_xfer_actions = pad_array_actions(xfer_actions) \
-            if self.training else tf.convert_to_tensor([xfer_actions], dtype=tf.float32)
-        padded_loc_actions = pad_array_actions(loc_actions) \
-            if self.training else tf.convert_to_tensor([loc_actions], dtype=tf.float32)
-        padded_xfer_actions = tf.expand_dims(padded_xfer_actions, axis=-1)
-        padded_loc_actions = tf.expand_dims(padded_loc_actions, axis=-1)
+        input_sequence = tf.concat([padded_xfer_actions, padded_loc_actions, padded_latents], axis=-1)
 
-        in_all = tf.reshape(
-            tf.concat([padded_xfer_actions, padded_loc_actions, padded_latents], axis=-1), [self.batch_size, -1]
-        )
-        out_rnn, next_state = self.rnn(in_all, self.last_state)
+        # input_sequence -- Tensor shape (seq_len, batch_size, ...)
+        out_rnn, next_state = self.unrolled_lstm(input_sequence, self.last_state)
         self.last_state = next_state
 
         out_full = self.gmm_linear(out_rnn)
 
         stride = self.num_gaussians * self.num_latents
 
-        mus = out_full[:, :stride]
-        mus = tf.reshape(mus, [self.batch_size, self.num_gaussians, self.num_latents])
+        mus = out_full[:, :, :stride]
+        mus = tf.reshape(mus, [self.seq_len, self.batch_size, self.num_gaussians, self.num_latents])
 
-        sigmas = out_full[:, stride:2 * stride]
-        sigmas = tf.exp(tf.reshape(sigmas, [self.batch_size, self.num_gaussians, self.num_latents]))
+        sigmas = out_full[:, :, stride:2 * stride]
+        sigmas = tf.exp(tf.reshape(sigmas, [self.seq_len, self.batch_size, self.num_gaussians, self.num_latents]))
 
-        pi = out_full[:, 2 * stride:2 * stride + self.num_gaussians]
-        pi = tf.nn.log_softmax(tf.reshape(pi, [self.batch_size, self.num_gaussians]), axis=-1)
+        pi = out_full[:, :, 2 * stride:2 * stride + self.num_gaussians]
+        pi = tf.nn.log_softmax(tf.reshape(pi, [self.seq_len, self.batch_size, self.num_gaussians]), axis=-1)
 
-        rs = out_full[:, -2]
-        ds = out_full[:, -1]
+        rs = out_full[:, :, -2]
+        ds = out_full[:, :, -1]
 
         return (mus, sigmas, pi, rs, ds), next_state
 
 
-def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True, num_latents=1600):
+# TODO: infer num_latents, seq_len, num_gaussians from tensor shapes
+def gmm_loss(next_latents, mus, sigmas, log_pi, reduce=True, num_latents=1600, seq_len=256, num_gaussians=8):
     """ Computes the gmm loss.
     Compute negative log probability of a batch for the GMM model.
     Precisely, with bs1, bs2, ... the sizes of the batch
@@ -119,16 +105,12 @@ def gmm_loss(next_latent_obs, mus, sigmas, log_pi, reduce=True, num_latents=1600
     with fs).
     """
 
-    def pad_array_latents(arr):
-        p_lats = []
-        for i, t in enumerate(arr):
-            last = [t[-1, :]] * (num_latents - t.shape[0])
-            p_lats.append(tf.concat([t, last], axis=0))
-        return tf.convert_to_tensor(p_lats)
-
-    next_latent_obs = tf.transpose(pad_array_latents(next_latent_obs), [0, 2, 1])
+    next_latents = tf.ragged.constant(next_latents, dtype=tf.float32).to_tensor(
+        shape=[None, seq_len, num_latents])
+    next_latents = tf.expand_dims(
+        tf.transpose(next_latents, [1, 0, 2]), axis=-2)
     normal_dist = tfp.distributions.Normal(mus, sigmas)
-    logs = normal_dist.log_prob(next_latent_obs)
+    logs = normal_dist.log_prob(next_latents)
     log_probs = log_pi + tf.reduce_sum(logs, axis=-1)
     max_log_probs = tf.reduce_max(log_probs, axis=-1, keepdims=True)
     log_probs = log_probs - max_log_probs
