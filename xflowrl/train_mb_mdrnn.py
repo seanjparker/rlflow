@@ -49,7 +49,7 @@ def main(path_or_name, cont=None):
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        gmm_learning_rate=0.0025,
+        gmm_learning_rate=4e-3,
         message_passing_steps=5,
         network_name=graph_name,
         checkpoint_timestamp=timestamp

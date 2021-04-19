@@ -12,13 +12,13 @@ from xflowrl.environment.worldmodel import WorldModelEnvironment
 from xflowrl.graphs.util import load_graph
 
 
-def main(path_or_name, cont=None):
-    graph_name, graph = load_graph(path_or_name)
+def main(_args):
+    graph_name, graph = load_graph(_args.graph)
 
     path_prefix = f'logs/xflowrl_mb_ctrl/{graph_name}/'
-    if cont:
-        path_prefix += cont
-        timestamp = cont
+    if _args.timestamp:
+        path_prefix += _args.timestamp
+        timestamp = _args.timestamp
         print('Continuing provided log')
     else:
         current_time = datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -50,14 +50,15 @@ def main(path_or_name, cont=None):
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        controller_learning_rate=0.0025,
+        controller_learning_rate=3e-4,
         message_passing_steps=5,
         network_name=graph_name,
-        checkpoint_timestamp=timestamp
+        checkpoint_timestamp=timestamp,
+        wm_timestamp=_args.wm_timestamp
     )
 
     agent = MBAgent(**hparams)
-    agent.load()
+    agent.load_wm()
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
 
@@ -95,8 +96,8 @@ def main(path_or_name, cont=None):
         timestep = 0
         while not terminal:
             # xfer_action, loc_action = agent.act(state, explore=True)
-            xfer_action = np.array([95])
-            loc_action = np.array([48])
+            xfer_action = np.array([[95]])
+            loc_action = np.array([[48]])
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
 
@@ -147,5 +148,7 @@ if __name__ == '__main__':
     parser.add_argument('--graph', required=True, help='Name of the graph, or file path')
     parser.add_argument('--timestamp',
                         help='Timestamp of the checkpoint to evaluate in the format YYYYMMDD-HHMMSS')
+    parser.add_argument('--wm_timestamp',
+                        help='Timestamp of the checkpoint that contains the MDRNN model in the format YYYYMMDD-HHMMSS')
     args = parser.parse_args(sys.argv[1:])
-    main(args.graph, args.timestamp)
+    main(args)
