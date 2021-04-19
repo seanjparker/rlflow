@@ -1,5 +1,6 @@
 from typing import Union
 
+import numpy as np
 import sonnet as snt
 import tensorflow as tf
 
@@ -37,19 +38,19 @@ class RandomAgent(_BaseAgent):
 
         # Create the GNN that will take the dataflow graph as an input and produce an embedding of the graph
         # This is the same as the 'Visual Model (V)' in the World Model paper by Ha et al.
+        self.latent_size = 32
         self.main_net = GraphNetwork(
             reducer=reducer,
             edge_model_layer_size=edge_model_layer_size,
             num_edge_layers=num_edge_layers,
             node_model_layer_size=node_model_layer_size,
             num_node_layers=num_node_layers,
-            global_layer_size=global_layer_size,
+            global_layer_size=self.latent_size,
             num_global_layers=num_global_layers,
             message_passing_steps=message_passing_steps
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.latent_size = num_locations * global_layer_size
         self.mdrnn = MDRNN(batch_size, self.latent_size, num_actions, 256, 8, training=True)
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
@@ -59,7 +60,7 @@ class RandomAgent(_BaseAgent):
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp
 
-        self.trunk_optimizer = tf.keras.optimizers.RMSprop(learning_rate=gmm_learning_rate)
+        self.trunk_optimizer = tf.keras.optimizers.Adam(learning_rate=gmm_learning_rate)
 
         checkpoint_root = "./checkpoint/mb/models"
         if network_name is not None:
@@ -119,13 +120,15 @@ class RandomAgent(_BaseAgent):
         latent_state = []
         for batch in states:
             latent_state.append(
-                tf.concat([self.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+                np.concatenate(
+                    [self.main_net.get_embeddings(gt["graph"], make_tensor=True).numpy() for gt in batch], axis=0)
             )
 
         next_latent_state = []
         for batch in next_states:
             next_latent_state.append(
-                tf.concat([self.main_net.get_embeddings(gt["graph"], make_tensor=True) for gt in batch], axis=0)
+                np.concatenate(
+                    [self.main_net.get_embeddings(gt["graph"], make_tensor=True).numpy() for gt in batch], axis=0)
             )
 
         with tf.GradientTape() as tape:
@@ -153,7 +156,7 @@ class MBAgent(_BaseAgent):
                  controller_learning_rate=0.001, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
-                 network_name=None, checkpoint_timestamp=None):
+                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
         """
         Args:
             num_actions (int): Number of discrete actions to choose from.
@@ -214,7 +217,18 @@ class MBAgent(_BaseAgent):
             checkpoint_root += f'/{network_name}'
         if checkpoint_timestamp is not None:
             checkpoint_root += f'/{checkpoint_timestamp}'
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, ctrl_optimiser=self.ctrl_optimiser,
+
+        wm_checkpoint = "../checkpoint/mb/models"
+        if network_name is not None:
+            wm_checkpoint += f'/{network_name}'
+        if wm_timestamp is not None:
+            wm_checkpoint += f'/{wm_timestamp}'
+
+        self.trunk_optimizer = tf.keras.optimizers.Adam(learning_rate=3e-4)
+        self.wm_ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer)
+        self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, wm_checkpoint, max_to_keep=5)
+
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), ctrl_optimiser=self.ctrl_optimiser,
                                         xfer_ctrl=self.xfer_controller, loc_ctrl=self.loc_controller)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
@@ -278,3 +292,10 @@ class MBAgent(_BaseAgent):
         # self.con_optimizer.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
         xfer_loss = tf.Tensor()  # Temp
         return xfer_loss.numpy()
+
+    def load_wm(self):
+        self.load()
+        status = self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
+        status.assert_existing_objects_matched()
+        if self.wm_ckpt_manager.latest_checkpoint:
+            print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
