@@ -150,16 +150,21 @@ class RandomAgent(_BaseAgent):
 
         with tf.GradientTape() as tape:
             (mus, sigmas, log_pi, rs, ds), ns = self.mdrnn(xfer_actions, loc_actions, latent_state)
+
             gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi, num_latents=self.mdrnn.num_latents)
+
             bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
             bce = bce_f(terminals, ds)
-            mse = tf.keras.losses.mse(rewards, rs)
+
+            mse_f = tf.keras.losses.MeanSquaredError()
+            mse = mse_f(rewards, rs)
+
             scale = self.latent_size + 2
             loss = (gmm + bce + mse) / scale
 
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
-        return loss
+        return dict(loss=loss, gmm=gmm, bce=bce, mse=mse)
 
     def update(self, states, next_states, actions, rewards, terminals):
         raise NotImplementedError('Use update_mdrnn instead')

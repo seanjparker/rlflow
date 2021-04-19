@@ -65,13 +65,6 @@ def main(_args):
     # Init the world model environment after we have created the agent
     env.init_state(agent.main_net, agent.mdrnn)
 
-    states = []
-    next_states = []
-    rewards = []
-    terminals = []
-    xfer_actions = []
-    loc_actions = []
-
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
         hp['reducer'] = 'tf.unsorted_segment_sum'
@@ -89,15 +82,27 @@ def main(_args):
     except FileNotFoundError:
         detailed_costs = []
 
+    states_batch = []
+    next_states_batch = []
+    xfer_action_batch = []
+    loc_action_batch = []
+    rewards_batch = []
+    terminals_batch = []
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, num_episodes):
         terminal = False
         state = env.reset_wm(init_graph)
         timestep = 0
+        # Define epoch buffers
+        states = []
+        next_states = []
+        xfer_actions = []
+        loc_actions = []
+        rewards = []
+        terminals = []
         while not terminal:
-            # xfer_action, loc_action = agent.act(state, explore=True)
-            xfer_action = np.array([[95]])
-            loc_action = np.array([[48]])
+            xfer_action, loc_action = agent.act(state, explore=True)
+
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
 
@@ -106,8 +111,8 @@ def main(_args):
             next_states.append(next_state)
             rewards.append(reward)
             terminals.append(terminal)
-            xfer_actions.append(xfer_action)
-            loc_actions.append(loc_action)
+            xfer_actions.append(xfer_action[0])
+            loc_actions.append(loc_action[0])
 
             state = next_state
             timestep += 1
@@ -115,17 +120,24 @@ def main(_args):
             # If terminal, reset.
             if terminal:
                 timestep = 0
+                states_batch.append(states.copy())
+                next_states_batch.append(next_states.copy())
+                xfer_action_batch.append(xfer_actions.copy())
+                loc_action_batch.append(loc_actions.copy())
+                rewards_batch.append(rewards.copy())
+                terminals_batch.append(terminals.copy())
+
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
-                    loss = agent.update(states, next_states, xfer_actions, terminals, rewards)
-                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {loss}')
+                    losses = agent.update(states, next_states, xfer_actions, terminals, rewards)
+                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {losses["loss"]}')
 
                     # Reset buffers
-                    states = []
-                    next_states = []
-                    xfer_actions = []
-                    loc_actions = []
-                    terminals = []
-                    rewards = []
+                    states_batch = []
+                    next_states_batch = []
+                    xfer_action_batch = []
+                    loc_action_batch = []
+                    rewards_batch = []
+                    terminals_batch = []
 
                     detailed_costs.append(env.get_detailed_costs())
                     with open(runtime_info_filename, 'w', encoding='utf-8') as f:
@@ -133,7 +145,10 @@ def main(_args):
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():
-                        tf.summary.scalar('loss', loss, step=current_episode)
+                        tf.summary.scalar('loss (avg)', losses["loss"], step=current_episode)
+                        tf.summary.scalar('gmm (mdn-rnn)', losses["gmm"], step=current_episode)
+                        tf.summary.scalar('bce (terminals)', losses["bce"], step=current_episode)
+                        tf.summary.scalar('mse (rewards)', losses["mse"], step=current_episode)
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')

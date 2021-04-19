@@ -60,13 +60,6 @@ def main(path_or_name, cont=None):
     start_episode = int(agent.ckpt.step)
     print(f'Starting from episode = {start_episode}')
 
-    states_batch = []
-    next_states_batch = []
-    xfer_action_batch = []
-    loc_action_batch = []
-    rewards_batch = []
-    terminals_batch = []
-
     with open(info_filename, 'wt') as fp:
         hp = copy.deepcopy(hparams)
         hp['reducer'] = 'tf.unsorted_segment_sum'
@@ -84,6 +77,12 @@ def main(path_or_name, cont=None):
     except FileNotFoundError:
         detailed_costs = []
 
+    states_batch = []
+    next_states_batch = []
+    xfer_action_batch = []
+    loc_action_batch = []
+    rewards_batch = []
+    terminals_batch = []
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, num_episodes):
         # Keep stepping
