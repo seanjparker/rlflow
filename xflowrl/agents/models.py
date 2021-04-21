@@ -1,5 +1,4 @@
 import tensorflow as tf
-import tensorflow_probability as tfp
 import numpy as np
 import graph_nets as gn
 import sonnet as snt
@@ -378,36 +377,8 @@ class GraphModelV2(_BaseModel):
         Returns:
             Integer action(s) of dim [B]
         """
-        if isinstance(states, list):
-            # Concat masks.
-            mask = tf.concat([state[self.mask_name] for state in states], axis=0)
 
-            # Convert graph tuple(s) to single tensor graph tuple.
-            # Assume batched states are list of graph tuples.
-            input_list = [state[self.state_name] for state in states]  # These are e.g. graph tuples
-            inputs = utils_tf.concat(input_list, axis=0)
-        else:
-            inputs = states[self.state_name]
-            mask = states[self.mask_name]
-
-        embedding = self.main_net.get_embeddings(inputs)
-        if self.reduce_embedding:
-            embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
-
-        mdrnn_out, self.mdrnn_state = self.mdrnn(actions, embedding, self.mdrnn_state)
-
-        # Mask out invalid actions.
-        pi = tf.squeeze(mdrnn_out[2])
-        print(pi.shape)
-        mixt = tf.squeeze(tf.random.categorical(tf.exp(pi), 1))
-        print(mixt)
-        print(mdrnn_out[0].shape)
-        latent_state = mdrnn_out[0][:, mixt, :]
-
-        mask = tf.reshape(mask, latent_state.shape)
-        latent_state = self.masked_logits(latent_state, mask)
-
-        logits = self.controller(embedding, latent_state)
+        logits = self.controller(states)
         action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
         # if explore:
         #

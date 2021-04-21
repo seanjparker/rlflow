@@ -1,5 +1,4 @@
 import sonnet as snt
-import tensorflow as tf
 
 
 class Controller(snt.Module):
@@ -7,14 +6,12 @@ class Controller(snt.Module):
         super(Controller, self).__init__(name=name)
         self.network = snt.Linear(num_actions)
 
-    def __call__(self, g_latents, m_latents):
+    def __call__(self, g_latents):
         """
-        Forward pass through the controller using the output of the graph embedding and MDRNN modules
+        Forward pass through the controller using the output of the graph embedding produced by the world model
         Args:
-            g_latents: latent tensor from the GNN
-            m_latents: latent tensor from the MDRNN
+            g_latents: latent tensor
 
         Returns: logits based on the latent variables from the graph and memory modules
         """
-        cat_in = tf.concat([g_latents, m_latents], dim=1)
-        return self.network(cat_in)
+        return self.network(g_latents)
