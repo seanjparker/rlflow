@@ -196,6 +196,10 @@ class MBAgent(_BaseAgent):
             checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
         super().__init__()
+        self.batch_size = batch_size
+        self.latent_size = 32
+        self.hidden_size = 256
+        self.gaussian_size = 8
 
         # Create the GNN that will take the dataflow graph as an input and produce an embedding of the graph
         # This is the same as the 'Visual Model (V)' in the World Model paper by Ha et al.
@@ -205,14 +209,13 @@ class MBAgent(_BaseAgent):
             num_edge_layers=num_edge_layers,
             node_model_layer_size=node_model_layer_size,
             num_node_layers=num_node_layers,
-            global_layer_size=global_layer_size,
+            global_layer_size=self.latent_size,
             num_global_layers=num_global_layers,
             message_passing_steps=message_passing_steps
         )
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.latent_size = num_locations * global_layer_size
-        self.mdrnn = MDRNN(1, self.latent_size, num_actions, 256, 8)
+        self.mdrnn = MDRNN(1, self.latent_size, num_actions, self.hidden_size, self.gaussian_size)
 
         # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
         # it returns a single tensor of size [B, num_xfers] for the xfers
@@ -243,59 +246,29 @@ class MBAgent(_BaseAgent):
         if wm_timestamp is not None:
             wm_checkpoint += f'/{wm_timestamp}'
 
-        self.trunk_optimizer = tf.keras.optimizers.Adam(learning_rate=3e-4)
-        self.wm_ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer)
+        self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
         self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, wm_checkpoint, max_to_keep=5)
 
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), ctrl_optimiser=self.ctrl_optimiser,
                                         xfer_ctrl=self.xfer_controller, loc_ctrl=self.loc_controller)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
-    def act(self, states: Union[dict, list], explore=True):
+    def act(self, states: tf.Tensor, explore=True):
         """
         Act on one or a list of states.
 
         Args:
-            states (Union[dict, list]): Either a single state or a list of states.
-                Each state is a dict which must contain the keys:
-                    'graph': An instance of gn.graphs.GraphTuple
-                    'mask': A 1d array of len 'num_actions' indicating valid and invalid actions.
-                        Valid actions are 1, invalid actions are 0. At least one action must be valid.
+            states (tf.Tensor): A single latent state
             explore (bool): If true, samples an action from the policy according the learned probabilities.
                 If false, deterministically uses the maximum likelihood estimate. Set to false during final
                 evaluation.
         Returns:
             action: a tuple (xfer, location) that describes the action to perform based on the current state
         """
-        # Convert graph tuples to eager tensors.
-        if isinstance(states, list):
-            for state in states:
-                state["graph"] = make_eager_graph_tuple(state["graph"])
-        else:
-            states["graph"] = make_eager_graph_tuple(states["graph"])
+        xfer_action = self.model.act(states, explore=explore)
+        loc_action = self.sub_model.act(states, explore=explore)
 
-        def logical_mask(mask_name="mask", mask=None):
-            mask = states[mask_name] if mask is None else mask
-            values = tf.cast(tf.convert_to_tensor(value=mask), tf.bool)
-            return tf.where(values)
-
-        def random_choice(x, size=1):
-            if x.shape[0] > 1:
-                # 20% chance of picking the terminating action under normal conditions
-                a_prob = 0.8 / (x.shape[0] - 1)
-                probabilities = tf.constant(([a_prob] * (x.shape[0] - 1)) + [0.2])
-            else:
-                probabilities = tf.constant([1.0])
-            rescaled_probs = tf.expand_dims(tf.math.log(probabilities), 0)
-            idx = tf.squeeze(tf.random.categorical(rescaled_probs, num_samples=size), axis=[0])
-            return tf.gather(x, idx)
-
-        xfer_action = random_choice(tf.squeeze(logical_mask(), axis=-1))
-
-        _, location_mask = self.state_xfer_masked(states, xfer_action)
-        location_action = random_choice(tf.squeeze(logical_mask(mask=location_mask), axis=1))
-
-        return xfer_action.numpy(), location_action.numpy()
+        return xfer_action, loc_action
 
     def update(self, states, next_states, actions, rewards, terminals):
         for state in states:

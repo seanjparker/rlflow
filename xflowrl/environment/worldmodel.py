@@ -27,7 +27,7 @@ class WorldModelEnvironment(_BaseEnvironment):
             inputs = graph_state["graph"]
 
         self.state = self.main_net.get_embeddings(inputs, make_tensor=True)
-        return self.state
+        return tf.identity(self.state)
 
     def step(self, actions):
         assert self._fully_init is True
@@ -36,11 +36,15 @@ class WorldModelEnvironment(_BaseEnvironment):
         print(f'{xfer_id[0]} @ {location_id[0]}')
 
         (mus, _, log_pi, rs, ds), ns = self.mdrnn(xfer_id, location_id, tf.expand_dims(self.state, axis=0))
-        mixt = tfp.distributions.Categorical(tf.math.exp(log_pi)).sample(1)
-        new_state = mus[:, mixt, :]
-        reward = rs
-        terminal = ds > 0
+        # We are only doing a single step, so extract the first element from the sequence
+        mus = tf.squeeze(mus[0, :, :, :])
+        log_pi = tf.squeeze(log_pi[0, :, :])
+        mixt = tfp.distributions.Categorical(tf.math.exp(log_pi)).sample(1)[0]
+        new_state = mus[mixt, :]
+        reward = tf.squeeze(rs[0, :])
+        terminal = tf.squeeze(ds[0, :] > 0)
 
-        self.state = new_state
+        new_state = tf.expand_dims(new_state, axis=0)
+        self.state = tf.identity(new_state)
 
-        return new_state, reward, terminal, None
+        return new_state, reward.numpy(), terminal.numpy(), None

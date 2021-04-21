@@ -91,8 +91,11 @@ def main(_args):
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, num_episodes):
         terminal = False
-        state = env.reset_wm(init_graph)
         timestep = 0
+
+        # Returns the current state in latent space -- tensor shape (1, latent_size)
+        state = env.reset_wm(init_graph)
+
         # Define epoch buffers
         states = []
         next_states = []

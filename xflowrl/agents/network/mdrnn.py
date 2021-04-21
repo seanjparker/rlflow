@@ -48,12 +48,32 @@ class MDRNN(MDRNNBase):
             - dones: (seq_len, batch_size) tensor
             - next_state: (LSTMState) Next state of the LSTM Cell
         """
-        padded_xfer_actions = tf.expand_dims(
-            tf.ragged.constant(xfer_actions, dtype=tf.float32).to_tensor(shape=[None, self.seq_len]), axis=-1)
-        padded_loc_actions = tf.expand_dims(
-            tf.ragged.constant(loc_actions, dtype=tf.float32).to_tensor(shape=[None, self.seq_len]), axis=-1)
-        padded_latents = tf.ragged.constant(latents, dtype=tf.float32).to_tensor(
-            shape=[None, self.seq_len, self.num_latents])
+
+        def pad(t, max_in_dims):
+            s = tf.shape(t)
+            paddings = [[0, m - s[i]] for i, m in enumerate(max_in_dims)]
+            return tf.pad(t, paddings)
+
+        def convert_actions(tensor):
+            # Try to convert to a RaggedTensor to support both batched and single-steps in the world model
+            tensor = tf.ragged.constant(tensor, dtype=tf.float32)
+            if isinstance(tensor, tf.RaggedTensor):
+                tensor = tensor.to_tensor(shape=[None, self.seq_len])
+            elif isinstance(tensor, tf.Tensor):
+                tensor = pad(tf.expand_dims(tensor, axis=-1), [1, self.seq_len])
+            return tf.expand_dims(tensor, axis=-1)  # Shape (batch_size, seq_length, 1)
+
+        def convert_latents(tensor):
+            if isinstance(tensor, list):
+                tensor = tf.ragged.constant(
+                    tensor, dtype=tf.float32).to_tensor(shape=[None, self.seq_len, self.num_latents])
+            elif isinstance(tensor, tf.Tensor):
+                tensor = pad(tensor, [1, self.seq_len, self.num_latents])
+            return tensor
+
+        padded_xfer_actions = convert_actions(xfer_actions)
+        padded_loc_actions = convert_actions(loc_actions)
+        padded_latents = convert_latents(latents)
 
         padded_latents = tf.transpose(padded_latents, [1, 0, 2])
         padded_xfer_actions = tf.transpose(padded_xfer_actions, [1, 0, 2])
