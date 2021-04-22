@@ -138,7 +138,7 @@ def main(path_or_name, cont=None):
                     print(
                         f'Loss = {losses["loss"]:.4f}, GMM = {losses["gmm"]:.4f},'
                         f' BCE = {losses["bce"]:.4f}, MSE = {losses["mse"]:.4f},'
-                        f' LR = {agent.trunk_optimizer._decayed_lr(tf.float32):.4f}')
+                        f' LR = {agent.trunk_optimizer._decayed_lr(tf.float32):.6f}')
 
                     # Reset buffers
                     states_batch = []
