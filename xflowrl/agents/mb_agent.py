@@ -4,6 +4,8 @@ import numpy as np
 import sonnet as snt
 import tensorflow as tf
 
+from pathlib import Path
+
 from xflowrl.agents.models import GraphNetwork, GraphModelV2
 from xflowrl.agents.network.controller import Controller
 from xflowrl.agents.network.mdrnn import MDRNN, gmm_loss
@@ -67,7 +69,11 @@ class RandomAgent(_BaseAgent):
         self.trunk_lr_fn = tf.optimizers.schedules.PolynomialDecay(gmm_learning_rate, 200, gmm_learning_rate / 40, 2)
         self.trunk_optimizer = tf.optimizers.Adam(self.trunk_lr_fn)
 
-        checkpoint_root = "./checkpoint/mb/models"
+        script_dir = Path(__file__).parent
+        relative_path = "../../checkpoint"
+        relative_path = (script_dir / relative_path).resolve()
+
+        checkpoint_root = f"{relative_path}/mb/models"
         if network_name is not None:
             checkpoint_root += f'/{network_name}'
         if checkpoint_timestamp is not None:
@@ -235,13 +241,17 @@ class MBAgent(_BaseAgent):
 
         self.ctrl_optimiser = tf.keras.optimizers.Adam(learning_rate=controller_learning_rate)
 
-        checkpoint_root = "./checkpoint/mb_ctrl/models"
-        if network_name is not None:
-            checkpoint_root += f'/{network_name}'
-        if checkpoint_timestamp is not None:
-            checkpoint_root += f'/{checkpoint_timestamp}'
+        script_dir = Path(__file__).parent
+        relative_path = "../../checkpoint"
+        checkpoint_root = (script_dir / relative_path).resolve()
 
-        wm_checkpoint = "../checkpoint/mb/models"
+        ctrl_checkpoint = f"{checkpoint_root}/mb_ctrl/models"
+        if network_name is not None:
+            ctrl_checkpoint += f'/{network_name}'
+        if checkpoint_timestamp is not None:
+            ctrl_checkpoint += f'/{checkpoint_timestamp}'
+
+        wm_checkpoint = f"{checkpoint_root}/mb/models"
         if network_name is not None:
             wm_checkpoint += f'/{network_name}'
         if wm_timestamp is not None:
@@ -252,7 +262,7 @@ class MBAgent(_BaseAgent):
 
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), ctrl_optimiser=self.ctrl_optimiser,
                                         xfer_ctrl=self.xfer_controller, loc_ctrl=self.loc_controller)
-        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, ctrl_checkpoint, max_to_keep=5)
 
     def act(self, states: tf.Tensor, explore=True):
         """
@@ -272,23 +282,20 @@ class MBAgent(_BaseAgent):
         return xfer_action, loc_action
 
     def update(self, states, next_states, actions, rewards, terminals):
-        for state in states:
-            state["graph"] = make_eager_graph_tuple(state["graph"])
-        for state in next_states:
-            state["graph"] = make_eager_graph_tuple(state["graph"])
         actions = tf.convert_to_tensor(value=actions)
 
-        # # Train head controller
-        # with tf.GradientTape() as controller_tape:
-        #     xfer_loss = controller_loss()
-        # grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
-        # self.con_optimizer.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
+        # Train head controller
+        with tf.GradientTape() as controller_tape:
+            xfer_loss = controller_loss()
+        grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
+        self.xfer_controller.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
         xfer_loss = tf.Tensor()  # Temp
         return xfer_loss.numpy()
 
     def load_wm(self):
         self.load()
-        status = self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
-        status.assert_existing_objects_matched()
+        self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
         if self.wm_ckpt_manager.latest_checkpoint:
             print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
+        else:
+            raise AssertionError('Failed to load world model checkpoint')
