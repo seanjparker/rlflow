@@ -49,7 +49,7 @@ def main(path_or_name, cont=None):
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        gmm_learning_rate=4e-3,
+        gmm_learning_rate=8e-3,
         message_passing_steps=5,
         network_name=graph_name,
         checkpoint_timestamp=timestamp
@@ -91,8 +91,6 @@ def main(path_or_name, cont=None):
         env.set_graph(graph)
 
         state = env.reset()
-        start_runtime = env.get_cost()
-        print(f'Start runtime: {start_runtime:.4f}')
 
         timestep = 0
 
@@ -123,13 +121,8 @@ def main(path_or_name, cont=None):
 
             # If terminal, reset.
             if terminal:
+                print(f'Episode: {current_episode}, timesteps: {timestep}')
                 timestep = 0
-
-                final_runtime = env.get_cost()
-                print(f'Final runtime:\t{final_runtime:.4f}')
-                print(f'Difference:\t'
-                      f'{final_runtime - start_runtime:+.4f} ({(final_runtime - start_runtime) / start_runtime:+.2%})')
-                print('-' * 40)
 
                 states_batch.append(states.copy())
                 next_states_batch.append(next_states.copy())
@@ -143,7 +136,9 @@ def main(path_or_name, cont=None):
                     losses = agent.update_mdrnn(states_batch, next_states_batch,
                                                 xfer_action_batch, loc_action_batch, terminals_batch, rewards_batch)
                     print(
-                        f'Loss = {losses["loss"]}, GMM = {losses["gmm"]}, BCE = {losses["bce"]}, MSE = {losses["mse"]}')
+                        f'Loss = {losses["loss"]:.4f}, GMM = {losses["gmm"]:.4f},'
+                        f' BCE = {losses["bce"]:.4f}, MSE = {losses["mse"]:.4f},'
+                        f' LR = {agent.trunk_optimizer._decayed_lr(tf.float32):.4f}')
 
                     # Reset buffers
                     states_batch = []
@@ -152,10 +147,6 @@ def main(path_or_name, cont=None):
                     loc_action_batch = []
                     rewards_batch = []
                     terminals_batch = []
-
-                    detailed_costs.append(env.get_detailed_costs())
-                    with open(runtime_info_filename, 'w', encoding='utf-8') as f:
-                        json.dump(detailed_costs, f, ensure_ascii=False, indent=4)
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():

@@ -64,7 +64,8 @@ class RandomAgent(_BaseAgent):
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp
 
-        self.trunk_optimizer = tf.keras.optimizers.Adam(learning_rate=gmm_learning_rate)
+        self.trunk_lr_fn = tf.optimizers.schedules.PolynomialDecay(gmm_learning_rate, 100, gmm_learning_rate / 20, 2)
+        self.trunk_optimizer = tf.optimizers.Adam(self.trunk_lr_fn)
 
         checkpoint_root = "./checkpoint/mb/models"
         if network_name is not None:
