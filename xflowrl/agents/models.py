@@ -245,7 +245,7 @@ class GraphModel(_BaseModel):
         # Detach from eager tensor to numpy.
         return action.numpy(), action_log_prob.numpy(), vf_values.numpy()
 
-    def compute_generalized_advantage_estimate(self, values, rewards, terminals):
+    def _compute_generalized_advantage_estimate(self, values, rewards, terminals):
         return gae_helper(
             vf=values,
             reward=rewards,
@@ -292,7 +292,7 @@ class GraphModel(_BaseModel):
         vf_values = tf.squeeze(self.value_net(embedding))
 
         # Compute advantage estimate.
-        advantages = self.compute_generalized_advantage_estimate(
+        advantages = self._compute_generalized_advantage_estimate(
             values=vf_values,
             rewards=rewards,
             terminals=terminals
@@ -352,7 +352,8 @@ class GraphModelV2(_BaseModel):
         property for comment on versions.
         """
 
-    def __init__(self, trunk, controller_head, batch_size, num_actions,
+    def __init__(self, trunk, batch_size, num_actions, discount=0.99, gae_lambda=1.0,
+                 clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2,
                  state_name='graph', mask_name='mask', reduce_embedding=False):
         super(GraphModelV2, self).__init__()
         self.main_net = trunk._layers[0]
@@ -361,11 +362,35 @@ class GraphModelV2(_BaseModel):
         self.state_name = state_name
         self.mask_name = mask_name
         self.reduce_embedding = reduce_embedding
+        self.clip_ratio = clip_ratio
+        self.discount = discount
+        self.gae_lambda = gae_lambda
 
-        self.controller = controller_head
+        self.policy_net = snt.Sequential([
+            # Stack of hidden layers.
+            snt.nets.MLP([policy_layer_size] * num_policy_layers, activate_final=True, activation=tf.nn.relu),
+            # A final layer with num_actions neurons.
+            snt.nets.MLP([num_actions], activate_final=False)
+        ], name="policy_net")
+
+        # Value function, outputs a value estimate for the current state.
+        self.value_net = snt.Sequential([
+            snt.nets.MLP([policy_layer_size] * num_policy_layers, activate_final=True, activation=tf.nn.relu),
+            snt.nets.MLP([1], activate_final=False)
+        ], name="value_net")
 
         self.num_actions = num_actions
         self.batch_size = batch_size
+
+    def _compute_generalized_advantage_estimate(self, values, rewards, terminals):
+        return gae_helper(
+            vf=values,
+            reward=rewards,
+            gamma=self.discount,
+            gae_lambda=self.gae_lambda,
+            terminals=terminals,
+            sequence_indices=terminals
+        )
 
     def act(self, states, explore=True):
         """
@@ -378,30 +403,67 @@ class GraphModelV2(_BaseModel):
             Integer action(s) of dim [B]
         """
 
-        logits = self.controller(states)
-        action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
-        # if explore:
-        #
-        # else:
-        #    action = tf.convert_to_tensor(value=np.argmax(logits, -1))
-        # log_probs = tf.nn.log_softmax(logits)
-        # action_log_prob = tf.reduce_sum(input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1)
-        return action.numpy()
+        logits = self.policy_net(states)
+        vf_values = tf.squeeze(self.value_net(states))
 
-    def update(self, states, actions, rewards, next_states, terminals, include_reward=False):
-        latent_state = [self.main_net.get_embeddings(x["graph"]) for x in states]
-        next_latent_state = [self.main_net.get_embeddings(x["graph"]) for x in next_states]
+        if explore:
+            action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+        else:
+            action = tf.convert_to_tensor(value=np.argmax(logits, -1))
+        log_probs = tf.nn.log_softmax(logits)
+        action_log_prob = tf.reduce_sum(
+            input_tensor=tf.one_hot(tf.squeeze(action), depth=self.num_actions) * log_probs, axis=1
+        )
 
-        (mus, sigmas, log_pi, rs, ds), _ = self.mdrnn(actions, latent_state)
-        gmm = gmm_loss(next_latent_state, mus, sigmas, log_pi)
-        bce_f = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        bce = bce_f(terminals, ds)
+        return action.numpy(), action_log_prob.numpy(), vf_values.numpy()
 
-        mse = tf.keras.losses.mse(rewards, rs) if include_reward else 0
-        scale = self.latent_size + 2 if include_reward else self.latent_size + 1
-        mdrnn_loss = (gmm + bce + mse) / scale
+    def update(self, states, actions, prev_log_probs, prev_values, rewards, terminals):
+        prev_log_probs = tf.squeeze(tf.convert_to_tensor(value=prev_log_probs))
 
-        return mdrnn_loss
+        logits = self.policy_net(states)
+
+        # VF output.
+        vf_values = tf.squeeze(self.value_net(states))
+
+        # Compute advantage estimate.
+        advantages = self._compute_generalized_advantage_estimate(
+            values=vf_values,
+            rewards=rewards,
+            terminals=terminals
+        )
+
+        # Compute vf loss with simple mean squared error against prior values.
+        v_targets = advantages + prev_values
+        v_targets = tf.stop_gradient(input=v_targets)
+        vf_loss = (vf_values - v_targets) ** 2
+
+        # Log likelihood of actions being taken.
+        log_probs = tf.nn.log_softmax(logits)
+        log_probs = tf.reduce_sum(
+            input_tensor=tf.one_hot(tf.squeeze(actions), depth=self.num_actions) * log_probs, axis=-1
+        )
+
+        # Ratio against log likelihood of actions _before_ update.
+        likelihood_ratio = tf.exp(x=log_probs - prev_log_probs)
+
+        # Update is bounded by clip ratio.
+        clipped_advantages = tf.where(
+            condition=advantages > 0,
+            x=((1 + self.clip_ratio) * advantages),
+            y=((1 - self.clip_ratio) * advantages)
+        )
+
+        # Shape [B], loss per item
+        loss = -tf.minimum(x=likelihood_ratio * advantages, y=clipped_advantages)
+
+        # Sample estimates of entropy and KL divergence.
+        loss_entropy = tf.reduce_mean(input_tensor=-log_probs)
+        kl_divergence = tf.reduce_mean(input_tensor=prev_log_probs - log_probs)
+
+        info = dict(loss_entropy=loss_entropy.numpy(), kl_divergence=kl_divergence.numpy())
+
+        # Mean loss across batch, shape [B] -> ()
+        return tf.reduce_mean(input_tensor=loss, axis=0), tf.reduce_mean(input_tensor=vf_loss, axis=0), info
 
 
 class GraphAEModel(_BaseModel):

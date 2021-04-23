@@ -179,7 +179,7 @@ class RandomAgent(_BaseAgent):
 
 class MBAgent(_BaseAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
-                 controller_learning_rate=0.001, message_passing_steps=5,
+                 pi_learning_rate=0.001, vf_learning_rate=0.001, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
                  network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
@@ -190,7 +190,8 @@ class MBAgent(_BaseAgent):
             reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
                 tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
                 for graph neural network.
-            controller_learning_rate (float): Learning rate for the controllers
+            pi_learning_rate (float): Learning rate for the policy network
+            vf_learning_rate (float): Learning rate for the value network
             message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
                 model.
             edge_model_layer_size (int): Hidden layer neurons.
@@ -224,22 +225,16 @@ class MBAgent(_BaseAgent):
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.mdrnn = MDRNN(1, self.latent_size, num_actions, self.hidden_size, self.gaussian_size)
 
-        # The controller is an MLP that uses the latent variables from the GNN and MDRNN as inputs
-        # it returns a single tensor of size [B, num_xfers] for the xfers
-        self.xfer_controller = Controller(num_actions)
-
-        # The location controller chooses the location at which to apply the chosen xfer of size [B, num_locations]
-        self.loc_controller = Controller(num_locations)
-
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 
-        self.model = GraphModelV2(self.trunk, self.xfer_controller, batch_size, num_actions)
-        self.sub_model = GraphModelV2(self.trunk, self.loc_controller, batch_size, num_actions)
+        self.model = GraphModelV2(self.trunk, batch_size, num_actions)
+        self.sub_model = GraphModelV2(self.trunk, batch_size, num_actions)
 
         self.network_name = network_name
         self.checkpoint_timestamp = checkpoint_timestamp
 
-        self.ctrl_optimiser = tf.keras.optimizers.Adam(learning_rate=controller_learning_rate)
+        self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=pi_learning_rate)
+        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
         script_dir = Path(__file__).parent
         relative_path = "../../checkpoint"
@@ -260,8 +255,8 @@ class MBAgent(_BaseAgent):
         self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
         self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, wm_checkpoint, max_to_keep=5)
 
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), ctrl_optimiser=self.ctrl_optimiser,
-                                        xfer_ctrl=self.xfer_controller, loc_ctrl=self.loc_controller)
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), pi_optimiser=self.pi_optimizer,
+                                        vf_optimiser=self.vf_optimizer, xfer_ctrl=self.model, loc_ctrl=self.sub_model)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, ctrl_checkpoint, max_to_keep=5)
 
     def act(self, states: tf.Tensor, explore=True):
@@ -276,21 +271,52 @@ class MBAgent(_BaseAgent):
         Returns:
             action: a tuple (xfer, location) that describes the action to perform based on the current state
         """
-        xfer_action = self.model.act(states, explore=explore)
-        loc_action = self.sub_model.act(states, explore=explore)
+        xfer_action, xfer_logprobs, xfer_vf_values = self.model.act(states, explore=explore)
+        loc_action, loc_logprobs, loc_vf_values = self.sub_model.act(states, explore=explore)
 
-        return xfer_action, loc_action
+        return xfer_action, xfer_logprobs, xfer_vf_values, loc_action, loc_logprobs, loc_vf_values
 
-    def update(self, states, next_states, actions, rewards, terminals):
-        actions = tf.convert_to_tensor(value=actions)
+    def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
+               rewards, terminals):
+        """
+        Computes proximal policy updates and value function updates using two separate
+        gradient tapes and optimizers.
 
-        # Train head controller
-        with tf.GradientTape() as controller_tape:
-            xfer_loss = controller_loss()
-        grads = controller_tape.gradient(xfer_loss, self.xfer_controller.trainable_variables)
-        self.xfer_controller.apply_gradients(zip(grads, self.xfer_controller.trainable_variables))
-        xfer_loss = tf.Tensor()  # Temp
-        return xfer_loss.numpy()
+        Returns:
+            loss (float): Policy loss
+            vf_loss (float): Value function loss.
+        """
+
+        xfer_actions = tf.convert_to_tensor(value=xfer_actions)
+        log_probs = tf.convert_to_tensor(value=log_probs)
+        vf_values = tf.convert_to_tensor(value=vf_values)
+        loc_actions = tf.convert_to_tensor(value=loc_actions)
+        loc_log_probs = tf.convert_to_tensor(value=loc_log_probs)
+        loc_vf_values = tf.convert_to_tensor(value=loc_vf_values)
+
+        # Update the policy and value networks of the xfer predication model
+        with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
+            pi_loss, vf_loss, info = self.model.update(states, xfer_actions, log_probs, vf_values, rewards, terminals)
+
+            policy_grads = tape.gradient(pi_loss, self.model.policy_net.trainable_variables)
+            self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
+
+            value_grads = vf_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
+            self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))
+
+        # Update the policy and value networks of the location prediction model
+        with tf.GradientTape() as sub_tape, tf.GradientTape() as sub_vf_tape:
+            loc_policy_loss, loc_vf_loss, _ = self.sub_model.update(states, loc_actions, loc_log_probs, loc_vf_values,
+                                                                    rewards, terminals)
+
+            policy_grads = sub_tape.gradient(loc_policy_loss, self.sub_model.policy_net.trainable_variables)
+            self.pi_optimizer.apply_gradients(zip(policy_grads, self.sub_model.policy_net.trainable_variables))
+
+            vf_grads = sub_vf_tape.gradient(loc_vf_loss, self.sub_model.value_net.trainable_variables)
+            self.vf_optimizer.apply_gradients(zip(vf_grads, self.sub_model.value_net.trainable_variables))
+
+        # Unpack eager tensor.
+        return pi_loss.numpy(), vf_loss.numpy(), loc_policy_loss.numpy(), loc_vf_loss.numpy(), info
 
     def load_wm(self):
         self.load()

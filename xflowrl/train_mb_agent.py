@@ -50,7 +50,8 @@ def main(_args):
         num_locations=num_locations,
         reducer=tf.math.unsorted_segment_sum,
         # Typically use small learning rates, depending on problem try [0.0025 - 0.00001]
-        controller_learning_rate=3e-4,
+        pi_learning_rate=1e-3,
+        vf_learning_rate=1e-3,
         message_passing_steps=5,
         network_name=graph_name,
         checkpoint_timestamp=timestamp,
@@ -76,79 +77,86 @@ def main(_args):
     print(f'Output filename: {output_filename}')
     output_file = open(output_filename, 'at')
 
-    try:
-        with open(runtime_info_filename, 'r', encoding='utf-8') as f:
-            detailed_costs = json.load(f)
-    except FileNotFoundError:
-        detailed_costs = []
+    states = []
+    xfer_actions = []
+    xfer_log_probs = []
+    xfer_vf_values = []
 
-    states_batch = []
-    next_states_batch = []
-    xfer_action_batch = []
-    loc_action_batch = []
-    rewards_batch = []
-    terminals_batch = []
+    loc_actions = []
+    loc_log_probs = []
+    loc_vf_values = []
+
+    rewards = []
+    terminals = []
+    episode_rewards = []
+
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, num_episodes):
         terminal = False
+        episode_reward = 0
         timestep = 0
 
         # Returns the current state in latent space -- tensor shape (1, latent_size)
         state = env.reset_wm(init_graph)
 
-        # Define epoch buffers
-        states = []
-        next_states = []
-        xfer_actions = []
-        loc_actions = []
-        rewards = []
-        terminals = []
         while not terminal:
-            xfer_action, loc_action = agent.act(state, explore=True)
+            xfer_action, xfer_log_prob, xfer_vf_value, \
+                loc_action, loc_log_prob, loc_vf_value = agent.act(state, explore=True)
 
             # Action delivered in shape (1,), need ()
             next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
 
             # Append to buffer.
             states.append(state)
-            next_states.append(next_state)
+            xfer_actions.append(xfer_action)
+            xfer_log_probs.append(xfer_log_prob)
+            xfer_vf_values.append(xfer_vf_value)
+            loc_actions.append(loc_action)
+            loc_log_probs.append(loc_log_prob)
+            loc_vf_values.append(loc_vf_value)
+
             rewards.append(reward)
             terminals.append(terminal)
-            xfer_actions.append(xfer_action[0])
-            loc_actions.append(loc_action[0])
 
             state = next_state
+            episode_reward += reward
             timestep += 1
 
             # If terminal, reset.
             if terminal:
                 timestep = 0
-                states_batch.append(states.copy())
-                next_states_batch.append(next_states.copy())
-                xfer_action_batch.append(xfer_actions.copy())
-                loc_action_batch.append(loc_actions.copy())
-                rewards_batch.append(rewards.copy())
-                terminals_batch.append(terminals.copy())
+                episode_rewards.append(episode_reward)
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
-                    loss = agent.update(states, next_states, xfer_actions, terminals, rewards)
-                    print(f'Episode {current_episode}, Timestep {timestep}, Loss = {loss}')
+                    print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(
+                        current_episode, episodes_per_batch, np.mean(episode_rewards[-episodes_per_batch:])))
+
+                    xfer_policy_loss, xfer_vf_loss, loc_policy_loss, loc_vf_loss, info = agent.update(
+                        states, xfer_actions, xfer_log_probs, xfer_vf_values,
+                        loc_actions, loc_log_probs, loc_vf_values, rewards, terminals)
+                    print(f'policy loss = {xfer_policy_loss}, vf loss = {xfer_vf_loss}')
+                    print(f'sub policy loss = {loc_policy_loss}, sub vf loss = {loc_vf_loss}')
 
                     # Reset buffers
-                    states_batch = []
-                    next_states_batch = []
-                    xfer_action_batch = []
-                    loc_action_batch = []
-                    rewards_batch = []
-                    terminals_batch = []
-
-                    detailed_costs.append(env.get_detailed_costs())
-                    with open(runtime_info_filename, 'w', encoding='utf-8') as f:
-                        json.dump(detailed_costs, f, ensure_ascii=False, indent=4)
+                    states = []
+                    xfer_actions = []
+                    xfer_log_probs = []
+                    xfer_vf_values = []
+                    loc_actions = []
+                    loc_log_probs = []
+                    loc_vf_values = []
+                    rewards = []
+                    terminals = []
 
                     # Log to tensorboard
                     with train_summary_writer.as_default():
-                        tf.summary.scalar('loss', loss, step=current_episode)
+                        tf.summary.scalar('episode_reward', episode_reward, step=current_episode)
+                        tf.summary.scalar('policy_loss', xfer_policy_loss, step=current_episode)
+                        tf.summary.scalar('vf_loss', xfer_vf_loss, step=current_episode)
+                        tf.summary.scalar('sub_policy_loss', loc_policy_loss, step=current_episode)
+                        tf.summary.scalar('sub_vf_loss', loc_vf_loss, step=current_episode)
+                        for k, v in info.items():
+                            tf.summary.scalar(k, v, step=current_episode)
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
