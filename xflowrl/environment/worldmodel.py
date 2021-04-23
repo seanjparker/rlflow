@@ -5,12 +5,13 @@ from xflowrl.environment.util import _BaseEnvironment
 
 
 class WorldModelEnvironment(_BaseEnvironment):
-    def __init__(self, num_locations):
+    def __init__(self, num_locations, temperature=1.0):
         super().__init__(num_locations, False, None)  # num_locations, real_measurements, rwd_func
         self.main_net = None
         self.mdrnn = None
         self.state = None
         self._fully_init = False
+        self.temperature = temperature
 
     def init_state(self, main_net, mdrnn):
         self.main_net = main_net
@@ -38,7 +39,7 @@ class WorldModelEnvironment(_BaseEnvironment):
         (mus, _, log_pi, rs, ds), ns = self.mdrnn(xfer_id, location_id, tf.expand_dims(self.state, axis=0))
         # We are only doing a single step, so extract the first element from the sequence
         mus = tf.squeeze(mus[0, :, :, :])
-        log_pi = tf.squeeze(log_pi[0, :, :])
+        log_pi = tf.squeeze(log_pi[0, :, :]) / self.temperature
         mixt = tfp.distributions.Categorical(tf.math.exp(log_pi)).sample(1)[0]
         new_state = mus[mixt, :]
         reward = tf.squeeze(rs[0, :])
