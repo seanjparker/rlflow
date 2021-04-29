@@ -11,7 +11,8 @@ class WorldModelEnvironment(_BaseEnvironment):
         self.mdrnn = None
         self.state = None
         self._fully_init = False
-        self.temperature = temperature
+        self._temperature = temperature
+        self._interaction_limit = 10
 
     def init_state(self, main_net, mdrnn):
         self.main_net = main_net
@@ -33,13 +34,20 @@ class WorldModelEnvironment(_BaseEnvironment):
     def step(self, actions):
         assert self._fully_init is True
 
+        if self._interaction_limit == 0:
+            # If timeout reached, force terminate
+            actions = [[151], [0]]
+            self._interaction_limit = 10
+        else:
+            self._interaction_limit -= 1
+
         xfer_id, location_id = actions
         print(f'{xfer_id[0]} @ {location_id[0]}')
 
         (mus, _, log_pi, rs, ds), ns = self.mdrnn(xfer_id, location_id, tf.expand_dims(self.state, axis=0))
         # We are only doing a single step, so extract the first element from the sequence
         mus = tf.squeeze(mus[0, :, :, :])
-        log_pi = tf.squeeze(log_pi[0, :, :]) / self.temperature
+        log_pi = tf.squeeze(log_pi[0, :, :]) / self._temperature
         mixt = tfp.distributions.Categorical(tf.math.exp(log_pi)).sample(1)[0]
         new_state = mus[mixt, :]
         reward = tf.squeeze(rs[0, :])
