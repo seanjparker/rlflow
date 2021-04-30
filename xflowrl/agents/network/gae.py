@@ -28,13 +28,14 @@ class EncoderDecoder(snt.Module):
     The model has three components:
     - Encoder graph net that encodes the edge, node, global attributes
     - N rounds of message-passing steps
-    - Decoder graph net that decodes the edge, node global attributes on each message-passing step
+    - Decoder graph net that decodes the edge, node global attributes and returns a graph tuple
     """
 
     def __init__(self,
                  edge_output_size=None,
                  node_output_size=None,
                  global_output_size=None,
+                 num_processing_steps=1,
                  name="gae"):
         super(EncoderDecoder, self).__init__(name=name)
         self._encoder = GraphMLP()
@@ -46,12 +47,13 @@ class EncoderDecoder(snt.Module):
         global_fn = _make_node_fn(global_output_size)
 
         self._output_transform = GraphIndependent(edge_fn, node_fn, global_fn)
+        self._num_processing_steps = num_processing_steps
 
-    def __call__(self, input_op, num_processing_steps):
+    def __call__(self, input_op):
         latent = self._encoder(input_op)
         latent0 = latent
         output_ops = []
-        for _ in range(num_processing_steps):
+        for _ in range(self._num_processing_steps):
             core_input = utils_tf.concat([latent0, latent], axis=1)
             latent = self._core(core_input)
             decoded_op = self._decoder(latent)

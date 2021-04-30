@@ -4,7 +4,7 @@ import graph_nets as gn
 import sonnet as snt
 from graph_nets import utils_tf
 
-from xflowrl.agents.network.mdrnn import gmm_loss
+from xflowrl.agents.network.gae import EncoderDecoder
 from xflowrl.agents.utils import gae_helper, make_eager_graph_tuple
 
 
@@ -78,6 +78,51 @@ class GraphNetwork(snt.Module):
             node_block_opt=_DEFAULT_NODE_BLOCK_OPT,
             global_block_opt=_DEFAULT_GLOBAL_BLOCK_OPT
         )
+
+    def get_embeddings(self, graph_tuple, make_tensor=False):
+        """
+        Computes policy logits from graph_tuple. This is done by first computing a graph
+        embedding on the incoming graph_tuple.
+
+        Args:
+            graph_tuple: Instance of gn.graphs.GraphsTuple.
+            make_tensor: Boolean flag to convert the graph_tuple to a tensor if true
+        Returns:
+            Globals: Tensor of shape graph_tuple.globals.shape
+        """
+        if make_tensor:
+            graph_tuple = make_eager_graph_tuple(graph_tuple)
+
+        # This performs one pass through the graph network and its aggregation functions.
+        # In particular, this updates globals by first updating edges based on the edge
+        # conditioning, then nodes, then globals.
+        updated_graph = self.graph_net(graph_tuple)
+
+        # for _ in range(self.message_passing_steps - 1):
+        #    updated_graph = self.graph_net(updated_graph)
+
+        # initial_state = zeros_graph(
+        #     graph_tuple, graph_tuple.edges.shape[0], graph_tuple.nodes.shape[0], graph_tuple.globals.shape[0])
+        # TODO The exact message passing / aggregation mechanism has to be decided based on problem structure.
+        # https://colab.research.google.com/github/deepmind/graph_nets/blob/master/graph_nets/demos/graph_nets_basics.ipynb#scrollTo=bJX9iMMIt8T9
+        # This is one example of a recurrent aggregation.
+
+        # Use updated globals as output.
+        # Pass result to policy network.
+        return updated_graph.globals
+
+
+class GraphAENetwork(snt.Module):
+    def __init__(self,
+                 edge_model_layer_size=8,
+                 node_model_layer_size=8,
+                 global_layer_size=8,
+                 message_passing_steps=1):
+        super(GraphAENetwork, self).__init__()
+
+        self.message_passing_steps = message_passing_steps
+
+        self.graph_net = EncoderDecoder(edge_model_layer_size, node_model_layer_size, global_layer_size)
 
     def get_embeddings(self, graph_tuple, make_tensor=False):
         """
@@ -467,14 +512,68 @@ class GraphModelV2(_BaseModel):
 
 
 class GraphAEModel(_BaseModel):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, num_actions, discount=0.99, gae_lambda=1.0,
+                 clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2, num_message_passing_steps=5,
+                 main_net=None, state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False):
         super(GraphAEModel, self).__init__()
 
-    def act(self, states, explore=True):
-        pass
+        if add_noop:
+            num_actions += 1
 
-    def update(self, states, actions, rewards, terminals):
-        pass
+        self.num_actions = num_actions
+        self.clip_ratio = clip_ratio
+        self.discount = discount
+        self.gae_lambda = gae_lambda
+
+        self.main_net = main_net
+        self.state_name = state_name
+        self.mask_name = mask_name
+
+        self.reduce_embedding = reduce_embedding
+
+    def act(self, states, explore=True):
+        """
+        Compute actions for states.
+
+        Args:
+            states: Input states.
+            explore: If true, sample action, if false, use argmax.
+        Returns:
+            Integer action(s) of dim [B]
+        """
+        if isinstance(states, list):
+            # Concat masks.
+            mask = tf.concat([state[self.mask_name] for state in states], axis=0)
+
+            # Convert graph tuple(s) to single tensor graph tuple.
+            # Assume batched states are list of graph tuples.
+            input_list = [state[self.state_name] for state in states]  # These are e.g. graph tuples
+            inputs = utils_tf.concat(input_list, axis=0)
+        else:
+            inputs = states[self.state_name]
+            mask = states[self.mask_name]
+
+        # Separately output globals.
+        embedding = self.main_net.get_embeddings(inputs)
+
+        if self.reduce_embedding:
+            # In the case of the sub action, we have e.g. 80 possible locations (out of 100). For each of these
+            # 80 graphs, we get an embedding of size global_dim. Reduce these information over 80 graphs into one
+            # information on which we base our decision on.
+            # Todo: Instead pad with zeros and use full embedding matrix?
+            embedding = tf.reduce_mean(input_tensor=embedding, axis=0, keepdims=True)
+
+        logits = self.policy_net(embedding)
+        mask = tf.reshape(mask, logits.shape)
+        logits = self.masked_logits(logits, mask)
+
+        action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
+
+        # Detach from eager tensor to numpy.
+        return action.numpy()
+
+    def update(self, states, actions, prev_log_probs, prev_values, rewards, terminals):
+        raise NotImplementedError
 
 
 class RandomGraphModel(_BaseModel):

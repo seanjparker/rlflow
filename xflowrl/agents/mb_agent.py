@@ -6,8 +6,7 @@ import tensorflow as tf
 
 from pathlib import Path
 
-from xflowrl.agents.models import GraphNetwork, GraphModelV2
-from xflowrl.agents.network.controller import Controller
+from xflowrl.agents.models import GraphNetwork, GraphModelV2, GraphAEModel, GraphAENetwork
 from xflowrl.agents.network.mdrnn import MDRNN, gmm_loss
 from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
@@ -177,7 +176,50 @@ class RandomAgent(_BaseAgent):
         raise NotImplementedError('Use update_mdrnn instead')
 
 
-class MBAgent(_BaseAgent):
+class WorldModelAgent(_BaseAgent):
+    def __init__(self, network_name, checkpoint_timestamp, wm_timestamp):
+        super().__init__()
+        self.network_name = network_name
+        self.checkpoint_timestamp = checkpoint_timestamp
+
+        script_dir = Path(__file__).parent
+        relative_path = "../../checkpoint"
+        checkpoint_root = (script_dir / relative_path).resolve()
+
+        self._ctrl_checkpoint = f"{checkpoint_root}/mb_ctrl/models"
+        if network_name is not None:
+            self._ctrl_checkpoint += f'/{network_name}'
+        if checkpoint_timestamp is not None:
+            self._ctrl_checkpoint += f'/{checkpoint_timestamp}'
+
+        self._wm_checkpoint = f"{checkpoint_root}/mb/models"
+        if network_name is not None:
+            self._wm_checkpoint += f'/{network_name}'
+        if wm_timestamp is not None:
+            self._wm_checkpoint += f'/{wm_timestamp}'
+
+        self.wm_ckpt = None
+        self.wm_ckpt_manager = None
+
+    def act(self, states: tf.Tensor, explore=True):
+        raise NotImplementedError
+
+    def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
+               rewards, terminals):
+        raise NotImplementedError
+
+    def load_wm(self):
+        assert self.wm_ckpt is not None and self.wm_ckpt_manager is not None
+
+        self.load()
+        self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
+        if self.wm_ckpt_manager.latest_checkpoint:
+            print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
+        else:
+            raise AssertionError('Failed to load world model checkpoint')
+
+
+class MBAgent(WorldModelAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
                  pi_learning_rate=0.001, vf_learning_rate=0.001, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2,
@@ -203,7 +245,7 @@ class MBAgent(_BaseAgent):
             network_name (str): Name of the network that is being optimized.
             checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
         """
-        super().__init__()
+        super().__init__(network_name, checkpoint_timestamp, wm_timestamp)
         self.batch_size = batch_size
         self.latent_size = 32
         self.hidden_size = 256
@@ -230,34 +272,15 @@ class MBAgent(_BaseAgent):
         self.model = GraphModelV2(self.trunk, batch_size, num_actions)
         self.sub_model = GraphModelV2(self.trunk, batch_size, num_actions)
 
-        self.network_name = network_name
-        self.checkpoint_timestamp = checkpoint_timestamp
-
         self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=pi_learning_rate)
         self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
 
-        script_dir = Path(__file__).parent
-        relative_path = "../../checkpoint"
-        checkpoint_root = (script_dir / relative_path).resolve()
-
-        ctrl_checkpoint = f"{checkpoint_root}/mb_ctrl/models"
-        if network_name is not None:
-            ctrl_checkpoint += f'/{network_name}'
-        if checkpoint_timestamp is not None:
-            ctrl_checkpoint += f'/{checkpoint_timestamp}'
-
-        wm_checkpoint = f"{checkpoint_root}/mb/models"
-        if network_name is not None:
-            wm_checkpoint += f'/{network_name}'
-        if wm_timestamp is not None:
-            wm_checkpoint += f'/{wm_timestamp}'
-
         self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
-        self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, wm_checkpoint, max_to_keep=5)
+        self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, self._wm_checkpoint, max_to_keep=5)
 
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), pi_optimiser=self.pi_optimizer,
                                         vf_optimiser=self.vf_optimizer, xfer_ctrl=self.model, loc_ctrl=self.sub_model)
-        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, ctrl_checkpoint, max_to_keep=5)
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self._ctrl_checkpoint, max_to_keep=5)
 
     def act(self, states: tf.Tensor, explore=True):
         """
@@ -318,10 +341,121 @@ class MBAgent(_BaseAgent):
         # Unpack eager tensor.
         return pi_loss.numpy(), vf_loss.numpy(), loc_policy_loss.numpy(), loc_vf_loss.numpy(), info
 
-    def load_wm(self):
-        self.load()
-        self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
-        if self.wm_ckpt_manager.latest_checkpoint:
-            print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
-        else:
-            raise AssertionError('Failed to load world model checkpoint')
+
+class MBAgentV2(WorldModelAgent):
+    def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
+                 pi_learning_rate=0.001, vf_learning_rate=0.001, message_passing_steps=5,
+                 edge_model_layer_size=8, num_edge_layers=2,
+                 node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
+                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
+        """
+        Args:
+            num_actions (int): Number of discrete actions to choose from.
+            num_locations (int): Number of discrete locations to choose from for each xfer
+            reducer (Union[tf.unsorted_segment_sum, tf.unsorted_segment_mean, tf.unsorted_segment_max,
+                tf.unsorted_segment_min, tf.unsorted_segment_prod, tf.unsorted_segment_sqrt_n]): Aggregation
+                for graph neural network.
+            pi_learning_rate (float): Learning rate for the policy network
+            vf_learning_rate (float): Learning rate for the value network
+            message_passing_steps (int): Number of neighbourhood aggregation steps, currently unused - see
+                model.
+            edge_model_layer_size (int): Hidden layer neurons.
+            num_edge_layers (int):  Num layers for edge aggregation MLP.
+            node_model_layer_size (int): Hidden layer neurons.
+            num_node_layers (int): Num layers for node aggregation MLP.
+            global_layer_size (int): Hidden layer neurons.
+            num_global_layers (int): Num layers for global aggregation MLP.
+            network_name (str): Name of the network that is being optimized.
+            checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
+        """
+        super().__init__(network_name, checkpoint_timestamp, wm_timestamp)
+        self.batch_size = batch_size
+        self.latent_size = 32
+        self.hidden_size = 256
+        self.gaussian_size = 8
+
+        # Create the GNN that will take the dataflow graph as an input and produce an embedding of the graph
+        # This is the same as the 'Visual Model (V)' in the World Model paper by Ha et al.
+        self.main_net = GraphAENetwork(
+            edge_model_layer_size=edge_model_layer_size,
+            node_model_layer_size=node_model_layer_size,
+            global_layer_size=self.latent_size,
+            message_passing_steps=message_passing_steps
+        )
+
+        # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
+        self.mdrnn = MDRNN(1, self.latent_size, num_actions, self.hidden_size, self.gaussian_size)
+
+        self.trunk = snt.Sequential([self.main_net, self.mdrnn])
+
+        self.model = GraphModelV2(self.trunk, batch_size, num_actions)
+        self.sub_model = GraphModelV2(self.trunk, batch_size, num_actions)
+
+        self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=pi_learning_rate)
+        self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
+
+        self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
+        self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, self._wm_checkpoint, max_to_keep=5)
+
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), pi_optimiser=self.pi_optimizer,
+                                        vf_optimiser=self.vf_optimizer, xfer_ctrl=self.model, loc_ctrl=self.sub_model)
+        self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self._ctrl_checkpoint, max_to_keep=5)
+
+    def act(self, states: tf.Tensor, explore=True):
+        """
+        Act on one or a list of states.
+
+        Args:
+            states (tf.Tensor): A single latent state
+            explore (bool): If true, samples an action from the policy according the learned probabilities.
+                If false, deterministically uses the maximum likelihood estimate. Set to false during final
+                evaluation.
+        Returns:
+            action: a tuple (xfer, location) that describes the action to perform based on the current state
+        """
+        xfer_action, xfer_logprobs, xfer_vf_values = self.model.act(states, explore=explore)
+        loc_action, loc_logprobs, loc_vf_values = self.sub_model.act(states, explore=explore)
+
+        return xfer_action, xfer_logprobs, xfer_vf_values, loc_action, loc_logprobs, loc_vf_values
+
+    def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
+               rewards, terminals):
+        """
+        Computes proximal policy updates and value function updates using two separate
+        gradient tapes and optimizers.
+
+        Returns:
+            loss (float): Policy loss
+            vf_loss (float): Value function loss.
+        """
+
+        xfer_actions = tf.convert_to_tensor(value=xfer_actions)
+        log_probs = tf.convert_to_tensor(value=log_probs)
+        vf_values = tf.convert_to_tensor(value=vf_values)
+        loc_actions = tf.convert_to_tensor(value=loc_actions)
+        loc_log_probs = tf.convert_to_tensor(value=loc_log_probs)
+        loc_vf_values = tf.convert_to_tensor(value=loc_vf_values)
+
+        # Update the policy and value networks of the xfer predication model
+        with tf.GradientTape() as tape, tf.GradientTape() as vf_tape:
+            pi_loss, vf_loss, info = self.model.update(states, xfer_actions, log_probs, vf_values, rewards, terminals)
+
+            policy_grads = tape.gradient(pi_loss, self.model.policy_net.trainable_variables)
+            self.pi_optimizer.apply_gradients(zip(policy_grads, self.model.policy_net.trainable_variables))
+
+            value_grads = vf_tape.gradient(vf_loss, self.model.value_net.trainable_variables)
+            self.vf_optimizer.apply_gradients(zip(value_grads, self.model.value_net.trainable_variables))
+
+        # Update the policy and value networks of the location prediction model
+        with tf.GradientTape() as sub_tape, tf.GradientTape() as sub_vf_tape:
+            loc_policy_loss, loc_vf_loss, _ = self.sub_model.update(states, loc_actions, loc_log_probs, loc_vf_values,
+                                                                    rewards, terminals)
+
+            policy_grads = sub_tape.gradient(loc_policy_loss, self.sub_model.policy_net.trainable_variables)
+            self.pi_optimizer.apply_gradients(zip(policy_grads, self.sub_model.policy_net.trainable_variables))
+
+            vf_grads = sub_vf_tape.gradient(loc_vf_loss, self.sub_model.value_net.trainable_variables)
+            self.vf_optimizer.apply_gradients(zip(vf_grads, self.sub_model.value_net.trainable_variables))
+
+        # Unpack eager tensor.
+        return pi_loss.numpy(), vf_loss.numpy(), loc_policy_loss.numpy(), loc_vf_loss.numpy(), info
