@@ -124,6 +124,7 @@ def main(_args):
 
             # If terminal, reset.
             if terminal:
+                print(f'Episode: {current_episode}, timesteps: {timestep}')
                 timestep = 0
                 episode_rewards.append(episode_reward)
 

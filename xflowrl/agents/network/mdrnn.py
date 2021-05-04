@@ -19,7 +19,7 @@ class MDRNNBase(snt.Module):
 
 class MDRNN(MDRNNBase):
     """ MDRNN model """
-    def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians, training=False):
+    def __init__(self, batch_size, num_latents, num_actions, num_hiddens, num_gaussians, temperature=1.0, training=False):
         super().__init__(num_latents, num_hiddens, num_gaussians)
         # Use an snt.UnrolledLSTM as it is an order of magnitude faster then snt.dynamic_unroll with a LSTM core
         # + need to support different sequence length and batch sizes
@@ -27,6 +27,7 @@ class MDRNN(MDRNNBase):
         self.batch_size = batch_size
         self.seq_len = 256  # TODO: fix hardcoded lstm state length
         self.last_state = self._initial_state()
+        self.temperature = temperature
         self.training = training
 
     def _initial_state(self):
@@ -95,7 +96,7 @@ class MDRNN(MDRNNBase):
         sigmas = out_full[:, :, stride:2 * stride]
         sigmas = tf.exp(tf.reshape(sigmas, [self.seq_len, self.batch_size, self.num_gaussians, self.num_latents]))
 
-        pi = out_full[:, :, 2 * stride:2 * stride + self.num_gaussians]
+        pi = out_full[:, :, 2 * stride:2 * stride + self.num_gaussians] / self.temperature
         pi = tf.nn.log_softmax(tf.reshape(pi, [self.seq_len, self.batch_size, self.num_gaussians]), axis=-1)
 
         rs = out_full[:, :, -2]
