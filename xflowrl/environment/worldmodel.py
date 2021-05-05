@@ -46,7 +46,7 @@ class WorldModelEnvironment(_BaseEnvironment):
         xfer_id, location_id = actions
         print(f'{xfer_id[0]} @ {location_id[0]}')
 
-        xfer_mask, loc_mask, _ = self._step_real(xfer_id, location_id)
+        xfer_mask, loc_mask, real_terminate = self._step_real(xfer_id, location_id)
 
         (mus, _, log_pi, rs, ds), ns = self.mdrnn(xfer_id, location_id, tf.expand_dims(self.state, axis=0))
         # We are only doing a single step, so extract the first element from the sequence
@@ -60,7 +60,7 @@ class WorldModelEnvironment(_BaseEnvironment):
         new_state = tf.expand_dims(new_state, axis=0)
         self.state = tf.identity(new_state)
 
-        return new_state, reward.numpy(), terminal.numpy(), dict(xfer_mask=xfer_mask, loc_mask=loc_mask)
+        return new_state, reward.numpy(), terminal.numpy() or real_terminate, dict(xfer_mask=xfer_mask, loc_mask=loc_mask)
 
     def _step_real(self, xfer_id, location_id):
         terminate = False
