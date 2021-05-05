@@ -269,8 +269,8 @@ class MBAgent(WorldModelAgent):
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 
-        self.model = GraphModelV2(self.trunk, batch_size, num_actions)
-        self.sub_model = GraphModelV2(self.trunk, batch_size, num_actions)
+        self.model = GraphModelV2(self.trunk, batch_size, num_actions, add_noop=True)
+        self.sub_model = GraphModelV2(self.trunk, batch_size, num_locations)
 
         self.pi_optimizer = tf.keras.optimizers.Adam(learning_rate=pi_learning_rate)
         self.vf_optimizer = tf.keras.optimizers.Adam(learning_rate=vf_learning_rate)
@@ -282,20 +282,23 @@ class MBAgent(WorldModelAgent):
                                         vf_optimiser=self.vf_optimizer, xfer_ctrl=self.model, loc_ctrl=self.sub_model)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, self._ctrl_checkpoint, max_to_keep=5)
 
-    def act(self, states: tf.Tensor, explore=True):
+    def act(self, states: Union[tf.Tensor, dict], explore=True):
         """
         Act on one or a list of states.
 
         Args:
-            states (tf.Tensor): A single latent state
+            states (tf.Tensor or dict[state, masks]): A single latent state or dict of states and action masks
             explore (bool): If true, samples an action from the policy according the learned probabilities.
                 If false, deterministically uses the maximum likelihood estimate. Set to false during final
                 evaluation.
         Returns:
             action: a tuple (xfer, location) that describes the action to perform based on the current state
         """
-        xfer_action, xfer_logprobs, xfer_vf_values = self.model.act(states, explore=explore)
-        loc_action, loc_logprobs, loc_vf_values = self.sub_model.act(states, explore=explore)
+        xfer_states = dict(state=states['state'], mask=states['masks']['xfer_mask'])
+        xfer_action, xfer_logprobs, xfer_vf_values = self.model.act(xfer_states, explore=explore)
+
+        loc_states = dict(state=states['state'], mask=states['masks']['loc_mask'][np.squeeze(xfer_action)])
+        loc_action, loc_logprobs, loc_vf_values = self.sub_model.act(loc_states, explore=explore)
 
         return xfer_action, xfer_logprobs, xfer_vf_values, loc_action, loc_logprobs, loc_vf_values
 

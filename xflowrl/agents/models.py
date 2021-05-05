@@ -399,8 +399,11 @@ class GraphModelV2(_BaseModel):
 
     def __init__(self, trunk, batch_size, num_actions, discount=0.99, gae_lambda=1.0,
                  clip_ratio=0.2, policy_layer_size=32, num_policy_layers=2,
-                 state_name='graph', mask_name='mask', reduce_embedding=False):
+                 state_name='graph', mask_name='mask', reduce_embedding=False, add_noop=False):
         super(GraphModelV2, self).__init__()
+        if add_noop:
+            num_actions += 1
+
         self.main_net = trunk._layers[0]
         self.mdrnn = trunk._layers[1]
 
@@ -448,8 +451,19 @@ class GraphModelV2(_BaseModel):
             Integer action(s) of dim [B]
         """
 
+        should_mask = False
+        mask = None
+        if isinstance(states, dict):
+            mask = np.expand_dims(states['mask'], axis=0)
+            states = states['state']
+            should_mask = True
+
         logits = self.policy_net(states)
         vf_values = tf.squeeze(self.value_net(states))
+
+        if should_mask:
+            # mask = tf.reshape(mask, logits.shape)
+            logits = self.masked_logits(logits, mask)
 
         if explore:
             action = tf.squeeze(tf.random.categorical(logits, 1), axis=-1)
@@ -463,7 +477,11 @@ class GraphModelV2(_BaseModel):
         return action.numpy(), action_log_prob.numpy(), vf_values.numpy()
 
     def update(self, states, actions, prev_log_probs, prev_values, rewards, terminals):
+        # mask = tf.concat([state[self.mask_name] for state in states], axis=0)
         prev_log_probs = tf.squeeze(tf.convert_to_tensor(value=prev_log_probs))
+        # input_list = [state for state in states]  # E.g. graph tuples
+        if not self.reduce_embedding:
+            states = tf.concat(states, axis=0)
 
         logits = self.policy_net(states)
 

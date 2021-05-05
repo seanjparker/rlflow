@@ -1,6 +1,7 @@
 from graph_nets import utils_tf
 import tensorflow as tf
 import tensorflow_probability as tfp
+import numpy as np
 from xflowrl.environment.util import _BaseEnvironment
 
 
@@ -21,6 +22,8 @@ class WorldModelEnvironment(_BaseEnvironment):
     def reset_wm(self, graph_state):
         assert self._fully_init is True
 
+        # self._interaction_limit = 10
+
         if isinstance(graph_state, list):
             input_list = [state["graph"] for state in graph_state]  # These are e.g. graph tuples
             inputs = utils_tf.concat(input_list, axis=0)
@@ -33,15 +36,17 @@ class WorldModelEnvironment(_BaseEnvironment):
     def step(self, actions):
         assert self._fully_init is True
 
-        if self._interaction_limit == 0:
-            # If timeout reached, force terminate
-            actions = [[151], [0]]
-            self._interaction_limit = 10
-        else:
-            self._interaction_limit -= 1
+        # if self._interaction_limit == 0:
+        #     # If timeout reached, force terminate
+        #     actions = np.array([[151], [0]])
+        #     self._interaction_limit = 10
+        # else:
+        #     self._interaction_limit -= 1
 
         xfer_id, location_id = actions
         print(f'{xfer_id[0]} @ {location_id[0]}')
+
+        xfer_mask, loc_mask, _ = self._step_real(xfer_id, location_id)
 
         (mus, _, log_pi, rs, ds), ns = self.mdrnn(xfer_id, location_id, tf.expand_dims(self.state, axis=0))
         # We are only doing a single step, so extract the first element from the sequence
@@ -55,4 +60,22 @@ class WorldModelEnvironment(_BaseEnvironment):
         new_state = tf.expand_dims(new_state, axis=0)
         self.state = tf.identity(new_state)
 
-        return new_state, reward.numpy(), terminal.numpy(), None
+        return new_state, reward.numpy(), terminal.numpy(), dict(xfer_mask=xfer_mask, loc_mask=loc_mask)
+
+    def _step_real(self, xfer_id, location_id):
+        terminate = False
+        if xfer_id >= self.rl_opt.get_num_xfers():
+            new_graph = self.graph
+            terminate = True
+        else:
+            new_graph = self.rl_opt.apply_xfer(xfer_id, location_id)
+
+        if new_graph:
+            self.graph = new_graph
+        new_real_env_state = self.build_state()
+
+        terminal = False
+        if np.sum(new_real_env_state['mask']) == 0 or terminate:
+            terminal = True
+
+        return new_real_env_state['mask'], new_real_env_state['location_mask'], terminal

@@ -29,7 +29,7 @@ def main(_args):
 
     output_filename = f'{path_prefix}/results.csv'
     info_filename = f'{path_prefix}/info.txt'
-    runtime_info_filename = f'{path_prefix}/runtime_info.json'
+    # runtime_info_filename = f'{path_prefix}/runtime_info.json'
     train_log_dir = f'{path_prefix}/train'
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
@@ -99,12 +99,17 @@ def main(_args):
         # Returns the current state in latent space -- tensor shape (1, latent_size)
         state = env.reset_wm(init_graph)
 
+        # Reset real env, used for getting action masks
+        env.set_graph(graph)
+        real_state = env.reset()
+        masks = dict(xfer_mask=real_state['mask'], loc_mask=real_state['location_mask'])
+
         while not terminal:
             xfer_action, xfer_log_prob, xfer_vf_value, \
-                loc_action, loc_log_prob, loc_vf_value = agent.act(state, explore=True)
+                loc_action, loc_log_prob, loc_vf_value = agent.act(dict(state=state, masks=masks), explore=True)
 
             # Action delivered in shape (1,), need ()
-            next_state, reward, terminal, _ = env.step((xfer_action, loc_action))
+            next_state, reward, terminal, next_masks = env.step((xfer_action, loc_action))
 
             # Append to buffer.
             states.append(state)
@@ -119,6 +124,7 @@ def main(_args):
             terminals.append(terminal)
 
             state = next_state
+            masks = next_masks
             episode_reward += reward
             timestep += 1
 
