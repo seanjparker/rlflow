@@ -11,11 +11,55 @@ from xflowrl.agents.network.mdrnn import MDRNN, gmm_loss
 from xflowrl.agents.utils import make_eager_graph_tuple, _BaseAgent
 
 
-class RandomAgent(_BaseAgent):
+class WorldModelAgent(_BaseAgent):
+    def __init__(self, network_name, checkpoint_timestamp, wm_timestamp):
+        super().__init__()
+        self.network_name = network_name
+        self.checkpoint_timestamp = checkpoint_timestamp
+
+        script_dir = Path(__file__).parent
+        relative_path = "../../checkpoint"
+        checkpoint_root = (script_dir / relative_path).resolve()
+
+        self._ctrl_checkpoint = f"{checkpoint_root}/mb_ctrl/models"
+        if network_name is not None:
+            self._ctrl_checkpoint += f'/{network_name}'
+        if checkpoint_timestamp is not None:
+            self._ctrl_checkpoint += f'/{checkpoint_timestamp}'
+
+        self._wm_checkpoint = f"{checkpoint_root}/mb/models"
+        if network_name is not None:
+            self._wm_checkpoint += f'/{network_name}'
+        if wm_timestamp is not None:
+            self._wm_checkpoint += f'/{wm_timestamp}'
+
+        self.wm_ckpt = None
+        self.wm_ckpt_manager = None
+
+    def act(self, states: tf.Tensor, explore=True):
+        raise NotImplementedError
+
+    def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
+               rewards, terminals):
+        raise NotImplementedError
+
+    def load_wm(self):
+        assert self.wm_ckpt is not None and self.wm_ckpt_manager is not None
+
+        self.load()
+        self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
+        if self.wm_ckpt_manager.latest_checkpoint:
+            print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
+        else:
+            raise AssertionError('Failed to load world model checkpoint')
+
+
+class RandomAgent(WorldModelAgent):
     def __init__(self, batch_size, num_actions, num_locations=100, reducer=tf.math.unsorted_segment_sum,
                  gmm_learning_rate=0.01, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2, node_model_layer_size=8, num_node_layers=2,
-                 global_layer_size=8, num_global_layers=2, network_name=None, checkpoint_timestamp=None):
+                 global_layer_size=8, num_global_layers=2,
+                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
         """
         Args:
             num_actions (int): Number of discrete actions to choose from.
@@ -34,8 +78,9 @@ class RandomAgent(_BaseAgent):
             num_global_layers (int): Num layers for global aggregation MLP.
             network_name (str): Name of the network that is being optimized.
             checkpoint_timestamp (str): Timestamp for continuing the training of an existing model.
+            wm_timestamp (str): Timestamp for loading a previous version of the world model.
         """
-        super().__init__()
+        super().__init__(network_name, checkpoint_timestamp, wm_timestamp)
         self.batch_size = batch_size
         self.latent_size = 32
         self.hidden_size = 256
@@ -79,6 +124,9 @@ class RandomAgent(_BaseAgent):
             checkpoint_root += f'/{checkpoint_timestamp}'
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
+
+        self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
+        self.wm_ckpt_manager = tf.train.CheckpointManager(self.wm_ckpt, self._wm_checkpoint, max_to_keep=5)
 
     def act(self, states: Union[dict, list], explore=True):
         """
@@ -172,51 +220,9 @@ class RandomAgent(_BaseAgent):
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
         return dict(loss=loss, gmm=gmm, bce=bce, mse=mse)
 
-    def update(self, states, next_states, actions, rewards, terminals):
-        raise NotImplementedError('Use update_mdrnn instead')
-
-
-class WorldModelAgent(_BaseAgent):
-    def __init__(self, network_name, checkpoint_timestamp, wm_timestamp):
-        super().__init__()
-        self.network_name = network_name
-        self.checkpoint_timestamp = checkpoint_timestamp
-
-        script_dir = Path(__file__).parent
-        relative_path = "../../checkpoint"
-        checkpoint_root = (script_dir / relative_path).resolve()
-
-        self._ctrl_checkpoint = f"{checkpoint_root}/mb_ctrl/models"
-        if network_name is not None:
-            self._ctrl_checkpoint += f'/{network_name}'
-        if checkpoint_timestamp is not None:
-            self._ctrl_checkpoint += f'/{checkpoint_timestamp}'
-
-        self._wm_checkpoint = f"{checkpoint_root}/mb/models"
-        if network_name is not None:
-            self._wm_checkpoint += f'/{network_name}'
-        if wm_timestamp is not None:
-            self._wm_checkpoint += f'/{wm_timestamp}'
-
-        self.wm_ckpt = None
-        self.wm_ckpt_manager = None
-
-    def act(self, states: tf.Tensor, explore=True):
-        raise NotImplementedError
-
     def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
                rewards, terminals):
-        raise NotImplementedError
-
-    def load_wm(self):
-        assert self.wm_ckpt is not None and self.wm_ckpt_manager is not None
-
-        self.load()
-        self.wm_ckpt.restore(self.wm_ckpt_manager.latest_checkpoint)
-        if self.wm_ckpt_manager.latest_checkpoint:
-            print("Restoring world model from path = {}".format(self.wm_ckpt_manager.latest_checkpoint))
-        else:
-            raise AssertionError('Failed to load world model checkpoint')
+        raise NotImplementedError('Use update_mdrnn instead')
 
 
 class MBAgent(WorldModelAgent):
