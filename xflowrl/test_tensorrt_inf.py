@@ -42,6 +42,7 @@ def main(_args):
     pb_path = _args.pb
     trt_path = _args.trt
     shape = _args.shape[1:-1].replace(" ", "").split(",")  # convert format [dim_0, dim_1, dim_2] into array
+    shape = [int(v) for v in shape]
     convert_onnx_to_tf(onnx_path, pb_path)
 
     params = trt.TrtConversionParams()
