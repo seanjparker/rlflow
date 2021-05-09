@@ -12,3 +12,4 @@ models
 .ipynb_checkpoints
 graphs/*.onnx
 results
+graphs/compiled/*
