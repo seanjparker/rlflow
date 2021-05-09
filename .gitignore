@@ -13,3 +13,4 @@ models
 graphs/*.onnx
 results
 graphs/compiled/*
+graphs/trt/*
