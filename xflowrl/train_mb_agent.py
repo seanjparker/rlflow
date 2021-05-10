@@ -144,7 +144,7 @@ def main(_args):
                 print(f'Predicted Runtime Improvement:\t'
                       f'{pred_runtime_diff:+.4f} ({pred_percent_improvement:+.2%})')
                 print(f'Real Runtime Improvement:\t'
-                      f'{real_runtime_diff:+.4f} ({real_percent_improvement:+.2%}')
+                      f'{real_runtime_diff:+.4f} ({real_percent_improvement:+.2%})')
                 print('-' * 40)
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
