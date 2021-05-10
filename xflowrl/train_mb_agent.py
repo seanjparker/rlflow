@@ -102,7 +102,7 @@ def main(_args):
         # Reset real env, used for getting action masks
         env.set_graph(graph)
         real_state = env.reset()
-        start_runtime = env.get_cost()
+        start_real_runtime = env.get_cost()
         masks = dict(xfer_mask=real_state['mask'], loc_mask=real_state['location_mask'])
 
         while not terminal:
@@ -136,8 +136,15 @@ def main(_args):
                 timestep = 0
                 episode_rewards.append(episode_reward)
 
+                pred_runtime_diff = rewards[-1] - rewards[0]
+                pred_percent_improvement = pred_runtime_diff / rewards[0]
+
+                real_runtime_diff = last_real_reward - start_real_runtime
+                real_percent_improvement = real_runtime_diff / start_real_runtime
+                print(f'Predicted Runtime Improvement:\t'
+                      f'{pred_runtime_diff:+.4f} ({pred_percent_improvement:+.2%})')
                 print(f'Real Runtime Improvement:\t'
-                      f'{last_real_reward - start_runtime:+.4f} ({(last_real_reward - start_runtime) / start_runtime:+.2%})')
+                      f'{real_runtime_diff:+.4f} ({real_percent_improvement:+.2%}')
                 print('-' * 40)
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
