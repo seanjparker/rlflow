@@ -102,6 +102,7 @@ def main(_args):
         # Reset real env, used for getting action masks
         env.set_graph(graph)
         real_state = env.reset()
+        start_runtime = env.get_cost()
         masks = dict(xfer_mask=real_state['mask'], loc_mask=real_state['location_mask'])
 
         while not terminal:
@@ -125,6 +126,7 @@ def main(_args):
 
             state = next_state
             masks = next_masks
+            last_real_reward = next_masks['real_reward']
             episode_reward += reward
             timestep += 1
 
@@ -133,6 +135,10 @@ def main(_args):
                 print(f'Episode: {current_episode}, timesteps: {timestep}')
                 timestep = 0
                 episode_rewards.append(episode_reward)
+
+                print(f'Real Runtime Improvement:\t'
+                      f'{last_real_reward - start_runtime:+.4f} ({(last_real_reward - start_runtime) / start_runtime:+.2%})')
+                print('-' * 40)
 
                 if current_episode > 0 and current_episode % episodes_per_batch == 0:
                     print('Finished episode = {}, Mean reward for last {} episodes = {}'.format(

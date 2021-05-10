@@ -44,7 +44,7 @@ class WorldModelEnvironment(_BaseEnvironment):
         #     self._interaction_limit -= 1
 
         xfer_id, location_id = actions
-        print(f'{xfer_id[0]} @ {location_id[0]}')
+        # print(f'{xfer_id[0]} @ {location_id[0]}')
 
         xfer_mask, loc_mask, real_reward, real_terminate = self._step_real(xfer_id, location_id)
 
