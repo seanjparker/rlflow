@@ -1,3 +1,5 @@
+import time
+
 from graph_nets import utils_tf
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -33,7 +35,7 @@ class WorldModelEnvironment(_BaseEnvironment):
         self.state = self.main_net.get_embeddings(inputs, make_tensor=True)
         return tf.identity(self.state)
 
-    def step(self, actions):
+    def step(self, actions, step_real=True):
         assert self._fully_init is True
 
         # if self._interaction_limit == 0:
