@@ -13,12 +13,14 @@ class WorldModelEnvironment(_BaseEnvironment):
         self.main_net = None
         self.mdrnn = None
         self.state = None
+        self.reward_net = None
         self._fully_init = False
         self._interaction_limit = 10
 
-    def init_state(self, main_net, mdrnn):
+    def init_state(self, main_net, mdrnn, reward_net=None):
         self.main_net = main_net
         self.mdrnn = mdrnn
+        self.reward_net = reward_net
         self._fully_init = True
 
     def reset_wm(self, graph_state):
@@ -61,6 +63,9 @@ class WorldModelEnvironment(_BaseEnvironment):
 
         new_state = tf.expand_dims(new_state, axis=0)
         self.state = tf.identity(new_state)
+
+        if self.reward_net is not None:
+            reward = self.reward_net(new_state)
 
         return new_state, reward.numpy(), terminal.numpy() or real_terminate, \
             dict(xfer_mask=xfer_mask, loc_mask=loc_mask, real_reward=real_reward, real_terminate=real_terminate)

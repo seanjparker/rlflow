@@ -99,6 +99,10 @@ class RandomAgent(WorldModelAgent):
             message_passing_steps=message_passing_steps
         )
 
+        # Reward prediction network
+        self.reward_net = snt.Sequential([snt.nets.MLP([32] * 5, activate_final=False, dropout_rate=0.2)])
+        self.reward_net_optimizer = tf.optimizers.Adam()
+
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.mdrnn = MDRNN(batch_size,
                            self.latent_size, num_actions, self.hidden_size, self.gaussian_size, training=True)
@@ -122,7 +126,8 @@ class RandomAgent(WorldModelAgent):
             checkpoint_root += f'/{network_name}'
         if checkpoint_timestamp is not None:
             checkpoint_root += f'/{checkpoint_timestamp}'
-        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer)
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), trunk=self.trunk, trunk_optimizer=self.trunk_optimizer,
+                                        reward_net=self.reward_net, reward_net_optimizer=self.reward_net_optimizer)
         self.ckpt_manager = tf.train.CheckpointManager(self.ckpt, checkpoint_root, max_to_keep=5)
 
         self.wm_ckpt = tf.train.Checkpoint(trunk=self.trunk)
@@ -218,7 +223,16 @@ class RandomAgent(WorldModelAgent):
 
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
-        return dict(loss=loss, gmm=gmm, bce=bce, mse=mse)
+
+        with tf.GradientTape() as rwd_tape:
+            pred_reward = self.reward_net(latent_state)
+            mse_f = tf.keras.losses.MeanSquaredError()
+            rwd_mse = mse_f(rewards, pred_reward)
+
+            grads = rwd_tape.gradient(rwd_mse, self.reward_net.trainable_variables)
+            self.reward_net_optimizer.apply_gradients(zip(grads, self.reward_net.trainable_variables))
+
+        return dict(loss=loss, gmm=gmm, bce=bce, mse=mse, rwd_mse=rwd_mse)
 
     def update(self, states, xfer_actions, log_probs, vf_values, loc_actions, loc_log_probs, loc_vf_values,
                rewards, terminals):
@@ -230,7 +244,7 @@ class MBAgent(WorldModelAgent):
                  pi_learning_rate=0.001, vf_learning_rate=0.001, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2,
                  node_model_layer_size=8, num_node_layers=2, global_layer_size=8, num_global_layers=2,
-                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
+                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None, temperature=1.0, use_composite=False):
         """
         Args:
             num_actions (int): Number of discrete actions to choose from.
@@ -270,8 +284,15 @@ class MBAgent(WorldModelAgent):
             message_passing_steps=message_passing_steps
         )
 
+        # Reward prediction network
+        if use_composite:
+            self.reward_net = snt.Sequential([snt.nets.MLP([32] * 5, activate_final=False, dropout_rate=0.2)])
+        else:
+            self.reward_net = None
+
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
-        self.mdrnn = MDRNN(1, self.latent_size, num_actions, self.hidden_size, self.gaussian_size)
+        self.mdrnn = MDRNN(1, self.latent_size, num_actions,
+                           self.hidden_size, self.gaussian_size, temperature=temperature)
 
         self.trunk = snt.Sequential([self.main_net, self.mdrnn])
 

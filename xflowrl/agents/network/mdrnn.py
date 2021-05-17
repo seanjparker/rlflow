@@ -30,6 +30,8 @@ class MDRNN(MDRNNBase):
         self.temperature = temperature
         self.training = training
 
+        print(f'Using temperature: {self.temperature}')
+
     def _initial_state(self):
         return self.unrolled_lstm.initial_state(self.batch_size)
 
