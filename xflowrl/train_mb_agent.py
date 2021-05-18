@@ -197,7 +197,7 @@ if __name__ == '__main__':
                         help='Timestamp of the checkpoint that contains the MDRNN model in the format YYYYMMDD-HHMMSS')
     feature_parser.add_argument('--composite', dest='composite',
                                 action='store_true', help='Flag to indicate if to use a composite world model')
-    parser.add_argument('--no-composite', dest='composite', action='store_false')
+    feature_parser.add_argument('--no-composite', dest='composite', action='store_false')
     parser.set_defaults(composite=False)
     args = parser.parse_args(sys.argv[1:])
     main(args)

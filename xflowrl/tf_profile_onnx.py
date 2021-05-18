@@ -16,7 +16,7 @@ INFERENCE_STEPS = 1000
 
 def convert_onnx_to_tf(onnx_path, pb_path):
     onnx_model = onnx.load(onnx_path)
-    tf_rep = prepare(onnx_model)
+    tf_rep = prepare(onnx_model, auto_cast=True)
     tf_rep.export_graph(pb_path)
 
 
@@ -38,10 +38,8 @@ def main(_args):
 
     convert_onnx_to_tf(_args.onnx, _args.pb)
     model = tf.saved_model.load(_args.pb)
-    print(model.signatures.keys())
-    # print(model.signatures)
-    print(shape)
-    features = tf.random.uniform(shape)
+    f = model.signatures["serving_default"]
+    features = tf.random.uniform(shape, dtype=tf.float32, name="data")
 
     print("="*40)
     print("Running profiler on TensorFlow model")
@@ -51,7 +49,7 @@ def main(_args):
     profiler.start(_args.logdir)
     for step in range(INFERENCE_STEPS):
         with tf.profiler.experimental.Trace("train", step_num=step):
-            _ = model(data=features)
+            _ = f(data=features)
     profiler.stop()
 
 
@@ -71,4 +69,5 @@ if __name__ == '__main__':
 # python xflowrl/tf_profile_onnx.py --onnx "./graphs/squeezenet1.1.onnx" --pb "./graphs/compiled/squeezenet1.1.onnx" --logdir "./logs/profile" --shape "[1, 3, 224, 224]"
 # python xflowrl/tf_profile_onnx.py --onnx "./graphs/resnet18.onnx" --pb "./graphs/compiled/resnet18.onnx" --logdir "./logs/profile" --shape "[1, 3, 224, 224]"
 # python xflowrl/tf_profile_onnx.py --onnx "./graphs/resnet50.onnx" --pb "./graphs/compiled/resnet50.onnx" --logdir "./logs/profile" --shape "[1, 3, 224, 224]"
-# python xflowrl/tf_profile_onnx.py --onnx "./graphs/inceptionv3.onnx" --pb "./graphs/compiled/inceptionv3.onnx" --logdir "./logs/profile" --shape "[1, 3, 229, 229]"
+# python xflowrl/tf_profile_onnx.py --onnx "./graphs/InceptionV3_compiled.onnx" --pb "./graphs/compiled/inceptionv3.onnx" --logdir "./logs/profile" --shape "[1, 3, 229, 229]"
+# python xflowrl/tf_profile_onnx.py --onnx "./graphs/BERT_compiled.onnx" --pb "./graphs/compiled/bert.onnx" --logdir "./logs/profile" --shape "[64, 1024]"

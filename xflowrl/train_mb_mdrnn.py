@@ -11,7 +11,7 @@ from xflowrl.environment.hierarchical import HierarchicalEnvironment
 from xflowrl.graphs.util import load_graph
 
 
-def main(path_or_name, cont=None):
+def main(path_or_name, cont=None, use_composite=False):
     graph_name, graph = load_graph(path_or_name)
 
     path_prefix = f'logs/xflowrl_mb/{graph_name}/'
@@ -44,6 +44,7 @@ def main(path_or_name, cont=None):
     episodes_per_batch = 10  # Todo: change
 
     hparams = dict(
+        use_composite=use_composite,
         batch_size=episodes_per_batch,
         num_actions=num_actions,
         num_locations=num_locations,
@@ -165,8 +166,13 @@ def main(path_or_name, cont=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    feature_parser = parser.add_mutually_exclusive_group(required=False)
     parser.add_argument('--graph', required=True, help='Name of the graph, or file path')
     parser.add_argument('--timestamp',
                         help='Timestamp of the checkpoint to evaluate in the format YYYYMMDD-HHMMSS')
+    feature_parser.add_argument('--composite', dest='composite',
+                                action='store_true', help='Flag to indicate if to use a composite world model')
+    feature_parser.add_argument('--no-composite', dest='composite', action='store_false')
+    parser.set_defaults(composite=False)
     args = parser.parse_args(sys.argv[1:])
-    main(args.graph, args.timestamp)
+    main(args.graph, args.timestamp, args.composite)

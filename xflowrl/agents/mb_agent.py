@@ -59,7 +59,7 @@ class RandomAgent(WorldModelAgent):
                  gmm_learning_rate=0.01, message_passing_steps=5,
                  edge_model_layer_size=8, num_edge_layers=2, node_model_layer_size=8, num_node_layers=2,
                  global_layer_size=8, num_global_layers=2,
-                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None):
+                 network_name=None, checkpoint_timestamp=None, wm_timestamp=None, use_composite=False):
         """
         Args:
             num_actions (int): Number of discrete actions to choose from.
@@ -102,6 +102,7 @@ class RandomAgent(WorldModelAgent):
         # Reward prediction network
         self.reward_net = snt.Sequential([snt.nets.MLP([32] * 5, activate_final=False, dropout_rate=0.2)])
         self.reward_net_optimizer = tf.optimizers.Adam()
+        self.use_composite = use_composite
 
         # Creates the Mixture Density Recurrent Neural Network that serves as the 'Memory RNN (M)'
         self.mdrnn = MDRNN(batch_size,
@@ -224,13 +225,15 @@ class RandomAgent(WorldModelAgent):
             grads = tape.gradient(loss, self.mdrnn.trainable_variables)
             self.trunk_optimizer.apply_gradients(zip(grads, self.mdrnn.trainable_variables))
 
-        with tf.GradientTape() as rwd_tape:
-            pred_reward = self.reward_net(latent_state)
-            mse_f = tf.keras.losses.MeanSquaredError()
-            rwd_mse = mse_f(rewards, pred_reward)
+        rwd_mse = 0.0
+        if self.use_composite:
+            with tf.GradientTape() as rwd_tape:
+                pred_reward = self.reward_net(latent_state)
+                mse_f = tf.keras.losses.MeanSquaredError()
+                rwd_mse = mse_f(rewards, pred_reward)
 
-            grads = rwd_tape.gradient(rwd_mse, self.reward_net.trainable_variables)
-            self.reward_net_optimizer.apply_gradients(zip(grads, self.reward_net.trainable_variables))
+                grads = rwd_tape.gradient(rwd_mse, self.reward_net.trainable_variables)
+                self.reward_net_optimizer.apply_gradients(zip(grads, self.reward_net.trainable_variables))
 
         return dict(loss=loss, gmm=gmm, bce=bce, mse=mse, rwd_mse=rwd_mse)
 
