@@ -14,3 +14,4 @@ graphs/*.onnx
 results
 graphs/compiled/*
 graphs/trt/*
+chart_data

@@ -18,12 +18,12 @@ class _BaseAgent(object):
     def update(self, *args):
         pass
 
-    def export(self, graph):
+    def export(self, graph, method='xflowrl'):
         import taso
         import onnx
 
         onnx_model = taso.export_onnx(graph)
-        path = f'./models/{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
+        path = f'./models/{method}_{self.network_name}/{self.checkpoint_timestamp}/{self.network_name}.onnx'
         os.makedirs(os.path.dirname(path), exist_ok=True)
         onnx.save(onnx_model, path)
 

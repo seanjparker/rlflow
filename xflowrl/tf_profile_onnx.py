@@ -56,6 +56,8 @@ def main(_args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--graph', required=False, help='Optional argument to convert Python model to ONNX')
+    # parser.add_argument('--ckpt', required=False, help='Indicate if we should load the model from a checkpoint')
+
     require_others = '--graph' not in sys.argv
     parser.add_argument('--onnx', required=require_others, help='File path to onnx model')
     parser.add_argument('--pb', required=require_others, help='File path for protobuf model')

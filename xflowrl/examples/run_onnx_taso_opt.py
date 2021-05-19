@@ -12,9 +12,11 @@ def load_graph(filename):
 
 def main(argv):
     graph_files = [
-        'graphs/resnet50.onnx',
-        'graphs/BERT_compiled.onnx',
-        'graphs/InceptionV3_compiled.onnx'
+        # 'graphs/resnet50.onnx',
+        # 'graphs/BERT_compiled.onnx',
+        # 'graphs/InceptionV3_compiled.onnx',
+        # 'graphs/resnet18.onnx',
+        'graphs/squeezenet1.1.onnx'
     ]
 
     graphs = []
@@ -29,7 +31,7 @@ def main(argv):
         start_runtime = current_graph.cost()
 
         start_time = time.time()
-        optimized_graph = ts.optimize(current_graph, alpha=1.02, budget=1000)
+        optimized_graph = ts.optimize(current_graph, alpha=1.02, budget=200)
         time_taken_taso = time.time() - start_time
 
         final_runtime_taso = optimized_graph.cost()
