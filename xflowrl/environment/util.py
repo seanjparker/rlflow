@@ -32,6 +32,7 @@ class _BaseEnvironment(object):
         self.last_runtime = 0.0
         self.measurement_info = dict()
         self.num_locations = num_locations
+        self.last_costs = dict(runtime=0.0, flops=0.0, mem_acc=0.0, num_kernels=0.0)
 
         self.real_measurements = real_measurements
         self.custom_reward = reward_function

@@ -28,12 +28,13 @@ class HierarchicalEnvironment(_BaseEnvironment):
             if self.custom_reward is not None:
                 for k, v in costs_dict.items():
                     costs_dict[k] = self._normalize_measurements(k, v)
-                reward = self.custom_reward(self.last_runtime, costs_dict)
+                reward = self.custom_reward(self.last_runtime, self.last_costs, costs_dict)
             else:
                 reward = costs_dict['runtime']  # Incremental reward
 
             # reward = 0.  # End-of-episode reward
             self.last_runtime = costs_dict['runtime']
+            self.last_costs = costs_dict.copy()
         else:
             print("Invalid action: xfer {} with location {}".format(xfer_id, location_id))
             new_run_time = 0.

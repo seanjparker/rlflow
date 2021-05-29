@@ -46,10 +46,12 @@ def main(path_or_name, cont=None):
 
     # A custom reward function can be provided to the environment to replace the default
     # incremental reward function
-    def custom_reward(last_runtime, norm_costs):
+    def custom_reward(last_runtime, last_costs, norm_costs):
         new_runtime, flops, mem_acc, num_kernels = norm_costs['runtime'], norm_costs['flops'], \
                                                    norm_costs['mem_acc'], norm_costs['num_kernels']
-        return new_runtime * 0.5 + mem_acc * 0.5
+        alpha = 0.5
+        beta = 0.5
+        return (alpha * (last_runtime - new_runtime)) + (beta * ((last_costs['mem_acc'] - mem_acc) / 2))
 
     num_locations = 200
 
@@ -238,8 +240,8 @@ def main(path_or_name, cont=None):
                         for k, v in info.items():
                             tf.summary.scalar(k, v, step=current_episode)
 
-                        figure = plot_xfer_heatmap(xfers_applied)
-                        tf.summary.image('xfers Applied', plot_to_image(figure), max_outputs=10, step=current_episode)
+                        #figure = plot_xfer_heatmap(xfers_applied)
+                        #tf.summary.image('xfers Applied', plot_to_image(figure), max_outputs=10, step=current_episode)
 
                     agent.save()
                     print(f'Checkpoint Episode = {int(agent.ckpt.step)}')
