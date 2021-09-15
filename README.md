@@ -179,6 +179,4 @@ on a set of graphs:
 python xflowrl/examples/run_onnx_xflowrl.py
 ```
 ## Citation
-TBA
-
-*This project was developed for partial fulfilment of the requirements for the degree of Master of Philosophy in Advanced Computer Science at The University of Cambridge.*
+TBD

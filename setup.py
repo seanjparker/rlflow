@@ -38,7 +38,7 @@ setup(
     version='0.1',
     description='A graph neural network agent.',
     url='',
-    author='Kai Fricke, Michael Schaarschmidt',
+    author='',
     author_email='',
     license='',
     packages=[package for package in find_packages() if package.startswith('xflowrl')],
