@@ -69,6 +69,8 @@ def main(_args):
     terminals = []
     episode_rewards = []
 
+    xfer_map = {}
+
     print(f'Training on graph: {graph_name}')
     for current_episode in range(start_episode, start_episode + (episodes_per_batch * 2)):
         terminal = False
@@ -94,6 +96,10 @@ def main(_args):
             # Append to buffer.
             states.append(state)
             xfer_actions.append(xfer_action)
+            xfer_map_action = str(xfer_action[0])
+            if xfer_map_action not in xfer_map:
+                xfer_map[xfer_map_action] = 0
+            xfer_map[xfer_map_action] += 1
             xfer_log_probs.append(xfer_log_prob)
             xfer_vf_values.append(xfer_vf_value)
             loc_actions.append(loc_action)
@@ -112,6 +118,8 @@ def main(_args):
             # If terminal, reset.
             if terminal:
                 print(f'Episode: {current_episode}, timesteps: {timestep}')
+                print(xfer_map)
+                xfer_map = {}
                 timestep = 0
                 episode_rewards.append(episode_reward)
 

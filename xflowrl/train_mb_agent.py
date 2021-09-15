@@ -41,7 +41,7 @@ def main(_args):
 
     num_actions = env.get_num_actions()
 
-    num_episodes = 2000  # Todo: change
+    num_episodes = 2200  # Todo: change
     episodes_per_batch = 10  # Todo: change
 
     hparams = dict(

@@ -12,11 +12,13 @@ def load_graph(filename):
 
 def main(argv):
     graph_files = [
-        # 'graphs/resnet50.onnx',
-        # 'graphs/BERT_compiled.onnx',
-        # 'graphs/InceptionV3_compiled.onnx',
-        # 'graphs/resnet18.onnx',
-        'graphs/squeezenet1.1.onnx'
+        # "graphs/resnet50.onnx",
+        # "graphs/BERT_compiled.onnx",
+        # "graphs/InceptionV3_compiled.onnx",
+        # "graphs/resnet18.onnx",
+        # "graphs/squeezenet1.1.onnx",
+        "graphs/vit_base.onnx"
+
     ]
 
     graphs = []
